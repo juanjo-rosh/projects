@@ -16,21 +16,26 @@ Each project is contained in its own directory and includes a dedicated `README.
 
 ### Big Data
 
-* **[Nombre de tu Proyecto 3]](./carpeta-del-proyecto-3/)**
+* **[Medical Images Filter]](./???????/)**
     * In Progress
-    * *Technologies: PySpark, SQL, Pandas*
+    * *Technologies: PySpark, SQL, Pandas, Numpy*
 
 ### Web Development & Full-Stack
 
-* **[Nombre de tu Proyecto 4]](./carpeta-del-proyecto-4/)**
+* **[MyFarm Game]](./??????????/)**
     * In Progress
-    * *Technologies: Flask, Python, HTML/CSS, JavaScript*
+    * *Technologies: React, Python, HTML/CSS, JavaScript...*
 
 ### Telecommunications & Signal Processing
 
-* **[Nombre de tu Proyecto 5]](./carpeta-del-proyecto-5/)**
+* **[Robot sensing]](./????????????/)**
     * In Progress
-    * *Technologies: MATLAB, Simulink, SciPy*
+    * *Technologies: Python, Webots*
+ 
+### Engineering Optimization
+* **[Optimization Applications]](./???????????/)**
+    * In Progress
+    * *Technologies: Python, Gurobi*
 
 ---
 
