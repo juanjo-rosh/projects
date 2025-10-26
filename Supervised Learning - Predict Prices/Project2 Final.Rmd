@@ -1,0 +1,2162 @@
+---
+title: 'Project 2. Statistical Learning - Supervised Learning'
+author: "Agustín Dorado Sánchez & Juan José Rosales Hernando"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: 72
+  chunk_output_type: console
+---
+
+The goal of this project is to predict the price of a smartphone given
+certain characteristics. Applying Supervised Learning techniques on an
+open data set obtained from *kaggle.com*.
+
+# 1. Data Preprocessing and Visualization Tools
+
+## 1.1 Data Preprocessing
+
+Firstly, we will load the data set and initialise the libraries that we
+are going to use during this whole study.
+
+```{r}
+library(dplyr)      # selecting variables
+library(mice)       # handling outliers
+library(ggplot2)    # plots
+library(forecast)    # plots
+library(gridExtra)  # plots
+library(grid)       # plots
+library(plotly)     # plots
+library(tidyverse)
+library(MASS)
+library(caret)      # machine learning
+library(e1071)
+library(skimr)
+library(VIM)
+library(reshape2)   # melting data for plotting
+library(GGally)     # correlations
+library(glmnet)
+library(rpart)
+library(pROC)
+library(class)
+library(randomForest) # random forests machine learning
+library(gbm)        # Gradient Boosting
+library(xgboost)
+library(glmnet)     # Ridge Regression
+library(leaflet)
+```
+
+Loading of the data set.
+
+```{r}
+rm(list = ls())
+data = read.csv("ndtv_data_final.csv")
+glimpse(data)
+
+set.seed(321)
+```
+
+The data set is configured by the following variables:
+
+-   **X**: index -\> *int*
+-   **Name**: Name of the Phone -\> *chr*
+-   **Brand**: Brand Name -\> *chr*
+-   **Model**: Model of the Phone -\> *chr*
+-   **Battery capacity (mAh)**: Battery capacity in mAh -\> *int*
+-   **Screen size (inches)**: Screen Size in Inches across opposite
+    corners -\> *dbl*
+-   **Touchscreen**: Whether the phone is touchscreen supported or not
+    -\> *chr*
+-   **Resolution x**: The resolution of the phone along the width of the
+    screen -\> *int*
+-   **Resolution y**: The resolution of the phone along the height of
+    the screen -\> *int*
+-   **Processor**: No. of processor cores -\> *int*
+-   **RAM (MB)**: RAM available in phone in MB -\> *int*
+-   **Internal storage**: Internal Storage of phone in GB -\> *dbl*
+-   **Rear camera**: Resolution of rear camera in MP (0 if unavailable)
+    -\> *dbl*
+-   **Front camera**: Resolution of front camera in MP (0 if
+    unavailable) -\> *dbl*
+-   **Operation system**: OS used in phone -\> *chr*
+-   **Wi-Fi**: Whether phone has WiFi functionality -\> *chr*
+-   **Bluetooth**: Whether phone has Bluetooth functionality -\> *chr*
+-   **GPS**: Whether phone has GPS functionality -\> *chr*
+-   **Number of SIMs**: Number of SIM card slots in phone -\> *int*
+-   **3G**: Whether phone has 3G network functionality -\> *chr*
+-   **4G/LTE**: Whether phone has 4G/LTE network functionality -\> *chr*
+-   **Price**: Price of the phone in INR -\> *int*
+
+We see that there are a lot of variables, however there are certain
+features that will not be used as we infer that are not good predictors
+and make the data set noisy. Those are:
+
+-   **X**: index -\> *int -\>* The index does not provide any
+    information about the mobile phone's prices.
+
+-   **Name**: Name of the Phone -\> *chr -\>* It is a variable with long
+    strings that adds noise and with just the Brand of the phone it is
+    enough to study.
+
+-   **Model**: Model of the Phone -\> *chr* -\> It is a variable with
+    long strings that adds noise and with just the Brand of the phone it
+    is enough to study.
+
+```{r}
+# We eliminate the 3 variables
+# data = data %>% select(-X, -Name, -Model)
+
+data$X = NULL
+data$Name = NULL
+data$Model = NULL
+```
+
+Then, the variables that are [Characters will be converted into
+categorical]{.underline} so they can be used properly in the Supervised
+Learning tools.
+
+```{r}
+# Factorise mantaining the actual names
+data$Brand = factor(data$Brand)   
+data$Operating.system = factor(data$Operating.system)
+
+# Factorise with 1's and 0's (1 = Yes; 0 = No)
+data$Touchscreen = factor(data$Touchscreen, levels = c("Yes", "No"), 
+                          labels = c(1, 0))
+data$Wi.Fi = factor(data$Wi.Fi, levels = c("Yes", "No"), 
+                          labels = c(1, 0))
+data$Bluetooth = factor(data$Bluetooth, levels = c("Yes", "No"), 
+                          labels = c(1, 0))
+data$GPS = factor(data$GPS, levels = c("Yes", "No"), 
+                          labels = c(1, 0))
+data$X3G = factor(data$X3G, levels = c("Yes", "No"), 
+                          labels = c(1, 0))
+data$X4G..LTE = factor(data$X4G..LTE, levels = c("Yes", "No"), 
+                          labels = c(1, 0))
+
+# We will also factorise the Number of SIMs as it takes 1, 2 or 3
+data$Number.of.SIMs = factor(data$Number.of.SIMs, levels = c(1, 2, 3),
+                             labels = c(1, 2, 3))
+```
+
+Now, we will focus on converting the prices of the smartphones from
+Indian Rupees to Euros. The actual conversion at this date is **1 INR =
+0.011069359 €**. We will round it so we stay using integers.
+
+```{r}
+data$Price = round(data$Price * 0.011069359)
+summary(data)
+```
+
+Taking a look again at the data we see that apparently there are no NA
+values. Nevertheless, we need to bear in mind that the **"NA values"**
+in this data set are expressed as 0's in the features *Rear.camera* and
+*Front.camera*. Let's take a look at those values:
+
+```{r}
+# Before anything we will use the library mice to be sure that there are no NAs
+md.pattern(data, rotate.names = TRUE)
+# No NAs explicitly
+
+# Amount of 0's
+sum(data$Rear.camera == 0)  # 2 with no "normal" camera
+sum(data$Front.camera == 0) # 18 with no "selfie" camera
+# We see a small amount of 0 values
+
+# Let's check those phones
+data[which(data$Rear.camera == 0), ]
+data[which(data$Front.camera == 0), ]
+```
+
+We see that the phones with no *rear camera* are **low-budget** phones
+that by their specifications, we deduce their target audience is people
+who just want to call. About the phones with no *front camera* we see
+the same tendency, low-budget phones with the same target. So keeping
+those observations would be a solid idea as those 0's make sense.
+However, there are 2 smartphones in which we deduce there are NAs.
+Smartphone 429 (an Oppo of 111€) and smartphone 645 (a Samsung of 398€).
+One idea would be to eliminate both smartphones. Nonetheless, we see
+that the Samsung is actually good model in terms of specifications and
+by comparing it within similar price tags phones of the same company.
+The usual relationship between the *rear* and the *front cameras* is of
+2/3. Hence, for this model we will maintain that value as a front
+camera. About the Oppo model we see that whenever there is *rear camera*
+around 13 the other is 8. So we will set that value as 8 and continue
+with the study.
+
+```{r}
+data[which(data$Brand == "Samsung" & data$Price > 300 & data$Price < 500), ] # comparison from where we deduce the Rear - Front camera Ratio
+data[645, ]$Front.camera = round(data[645, ]$Rear.camera * (2 / 3))
+
+# For the Oppo we do a similar analysis
+data[which(data$Brand == "Oppo" & data$Price > 90 & data$Price < 130), ]
+data[429, ]$Front.camera = 8
+summary(data)
+```
+
+Now, let's step into the handling of **outliers**. First of all, before
+taking any outlier conclusion we must consider the nature of the topic
+and the data set studied. Mobile phones can vary a lot and those changes
+between devices are crucial. They define almost perfectly the target
+audience of buyers for certain devices, some companies may be more
+focused on a low-budget audience, others on reliability and power
+efficiency, others on high-end devices... Also, depending on the company
+market cap and their strategy, they may have a wider variety of products
+than others.
+
+In short, this part of the feature engineering must be taken as just an
+idea of how the data set is distributed. Therefore, the 3-sigma rule,
+the IQR and the distribution plots will be used for that purpose.
+
+```{r}
+# 3-sigma rule and IQR (numerical variables only)
+# Battery - (Just 3 "outliers")
+mu = mean(data$Battery.capacity..mAh.)
+sigma = sd(data$Battery.capacity..mAh.)
+sum(data$Battery.capacity..mAh. < mu - 3 * sigma | 
+      data$Battery.capacity..mAh. > mu + 3 * sigma)
+
+QI = quantile(data$Battery.capacity..mAh., 0.25)
+QS = quantile(data$Battery.capacity..mAh., 0.75)
+IQR = QS - QI
+sum(data$Battery.capacity..mAh. < QI - 1.5*IQR | 
+      data$Battery.capacity..mAh. > QS + 1.5*IQR)
+
+# Screen - (11 from 3-sigma and 22 from IQR)
+mu = mean(data$Screen.size..inches.)
+sigma = sd(data$Screen.size..inches.)
+sum(data$Screen.size..inches. < mu - 3 * sigma | 
+      data$Screen.size..inches. > mu + 3 * sigma)
+
+QI = quantile(data$Screen.size..inches., 0.25)
+QS = quantile(data$Screen.size..inches., 0.75)
+IQR = QS - QI
+sum(data$Screen.size..inches. < QI - 1.5*IQR | 
+      data$Screen.size..inches. > QS + 1.5*IQR)
+
+# Resolution X - (Just 3 "outliers")
+mu = mean(data$Resolution.x)
+sigma = sd(data$Resolution.x)
+sum(data$Resolution.x < mu - 3 * sigma | 
+      data$Resolution.x > mu + 3 * sigma)
+
+QI = quantile(data$Resolution.x, 0.25)
+QS = quantile(data$Resolution.x, 0.75)
+IQR = QS - QI
+sum(data$Resolution.x < QI - 1.5*IQR | 
+      data$Resolution.x > QS + 1.5*IQR)
+
+# Resolution Y - (5 from 3-sigma and 21 from IQR)
+mu = mean(data$Resolution.y)
+sigma = sd(data$Resolution.y)
+sum(data$Resolution.y < mu - 3 * sigma | 
+      data$Resolution.y > mu + 3 * sigma)
+
+QI = quantile(data$Resolution.y, 0.25)
+QS = quantile(data$Resolution.y, 0.75)
+IQR = QS - QI
+sum(data$Resolution.y < QI - 1.5*IQR | 
+      data$Resolution.y > QS + 1.5*IQR)
+
+# Processor (No outliers)
+mu = mean(data$Processor)
+sigma = sd(data$Processor)
+sum(data$Processor < mu - 3 * sigma | 
+      data$Processor > mu + 3 * sigma)
+
+QI = quantile(data$Processor, 0.25)
+QS = quantile(data$Processor, 0.75)
+IQR = QS - QI
+sum(data$Processor < QI - 1.5*IQR | 
+      data$Processor > QS + 1.5*IQR)
+
+# RAM - (33 outliers)
+mu = mean(data$RAM..MB.)
+sigma = sd(data$RAM..MB.)
+sum(data$RAM..MB. < mu - 3 * sigma | 
+      data$RAM..MB. > mu + 3 * sigma)
+
+QI = quantile(data$RAM..MB., 0.25)
+QS = quantile(data$RAM..MB., 0.75)
+IQR = QS - QI
+sum(data$RAM..MB. < QI - 1.5*IQR | 
+      data$RAM..MB. > QS + 1.5*IQR)
+
+# Internal Storage - (10 from 3-sigma and 79 from IQR)
+mu = mean(data$Internal.storage..GB.)
+sigma = sd(data$Internal.storage..GB.)
+sum(data$Internal.storage..GB. < mu - 3 * sigma | 
+      data$Internal.storage..GB. > mu + 3 * sigma)
+
+QI = quantile(data$Internal.storage..GB., 0.25)
+QS = quantile(data$Internal.storage..GB., 0.75)
+IQR = QS - QI
+sum(data$Internal.storage..GB. < QI - 1.5*IQR | 
+      data$Internal.storage..GB. > QS + 1.5*IQR)
+
+# Rear Camera - (51 from 3-sigma and 91 from IQR)
+mu = mean(data$Rear.camera)
+sigma = sd(data$Rear.camera)
+sum(data$Rear.camera < mu - 3 * sigma | 
+      data$Rear.camera > mu + 3 * sigma)
+
+QI = quantile(data$Rear.camera, 0.25)
+QS = quantile(data$Rear.camera, 0.75)
+IQR = QS - QI
+sum(data$Rear.camera < QI - 1.5*IQR | 
+      data$Rear.camera > QS + 1.5*IQR)
+
+# Front camera - (26 from 3-sigma and 80 from IQR)
+mu = mean(data$Front.camera)
+sigma = sd(data$Front.camera)
+sum(data$Front.camera < mu - 3 * sigma | 
+      data$Front.camera > mu + 3 * sigma)
+
+QI = quantile(data$Front.camera, 0.25)
+QS = quantile(data$Front.camera, 0.75)
+IQR = QS - QI
+sum(data$Front.camera < QI - 1.5*IQR | 
+      data$Front.camera > QS + 1.5*IQR)
+
+# Price - (35 from 3-sigma and 142 from IQR)
+mu = mean(data$Price)
+sigma = sd(data$Price)
+sum(data$Price < mu - 3 * sigma | 
+      data$Price > mu + 3 * sigma)
+
+QI = quantile(data$Price, 0.25)
+QS = quantile(data$Price, 0.75)
+IQR = QS - QI
+sum(data$Price < QI - 1.5*IQR | 
+      data$Price > QS + 1.5*IQR)
+```
+
+After this first glance of the outliers, we see that the RAM, internal
+memory, cameras and Price have a considerable amount of them.
+
+```{r}
+# Seeing graphically the different distributions of the Numerical variables
+data_numerical = data %>% dplyr::select(where(is.numeric))
+# We normalise the numerical data to make comparisons right
+data_numerical = scale(data_numerical)
+# Melt the data for plotting
+melted_data = melt(data_numerical)
+
+g1 = ggplot(melted_data, aes(x = Var2, y = value, fill = Var2)) +
+     geom_boxplot() +
+     scale_fill_manual(values = rainbow(11)) +
+     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+g1
+```
+
+Despite the amount of outliers due to the nature of this topic, actually
+the outliers are important data. So, before going to the Visualization
+part, we will **normalise** the numerical variables.
+
+```{r}
+# For future individual plots we will save a not normalised copy
+data_old = data
+
+data$Battery.capacity..mAh. = (data$Battery.capacity..mAh. - 
+                                 min(data$Battery.capacity..mAh.)) / 
+                                 (max(data$Battery.capacity..mAh.) - 
+                                    min(data$Battery.capacity..mAh.))
+data$Screen.size..inches. = (data$Screen.size..inches. - 
+                                 min(data$Screen.size..inches.)) / 
+                                 (max(data$Screen.size..inches.) - 
+                                    min(data$Screen.size..inches.))
+
+data$Resolution.x = (data$Resolution.x - min(data$Resolution.x)) / 
+                    (max(data$Resolution.x) - min(data$Resolution.x))
+
+data$Resolution.y = (data$Resolution.y - min(data$Resolution.y)) / 
+                    (max(data$Resolution.y) - min(data$Resolution.y))
+
+data$Processor = (data$Processor - min(data$Processor)) / 
+                 (max(data$Processor) - min(data$Processor))
+
+data$RAM..MB. = (data$RAM..MB. - min(data$RAM..MB.)) / 
+                (max(data$RAM..MB.) - min(data$RAM..MB.))
+
+data$Internal.storage..GB. = (data$Internal.storage..GB. - 
+                                min(data$Internal.storage..GB.)) / 
+                              (max(data$Internal.storage..GB.) - 
+                              min(data$Internal.storage..GB.))
+
+data$Rear.camera = (data$Rear.camera - min(data$Rear.camera)) / 
+                 (max(data$Rear.camera) - min(data$Rear.camera))
+
+data$Front.camera = (data$Front.camera - min(data$Front.camera)) / 
+                    (max(data$Front.camera) - min(data$Front.camera))
+
+#data$Price = (data$Price - min(data$Price)) / (max(data$Price) - min(data$Price))
+```
+
+```{r}
+glimpse(data)
+summary(data)
+```
+
+So in the end, the data set that we will be working from now on is
+defined by the following features:
+
+-   **Brand**: Brand Name -\> *fct* with 76 levels of the different
+    brands such as OnePlus, Xiaomi, Apple...
+
+-   **Battery capacity (mAh)**: Battery capacity in mAh -\> *dbl*
+    (normalised) *int* (non-normalised).
+
+-   **Screen size (inches)**: Screen Size in Inches across opposite
+    corners -\> *dbl*
+
+-   **Touchscreen**: Whether the phone is touchscreen supported or not
+    -\> *fct* (1 = it has; 0 = it has NOT).
+
+-   **Resolution x**: The resolution of the phone along the width of the
+    screen -\> *dbl* (normalised) *int* (non-normalised).
+
+-   **Resolution y**: The resolution of the phone along the height of
+    the screen -\> *dbl* (normalised) *int* (non-normalised).
+
+-   **Processor**: No. of processor cores -\> *dbl* (normalised) *int*
+    (non-normalised).
+
+-   **RAM (MB)**: RAM available in phone in MB -\> *dbl* (normalised)
+    *int* (non-normalised).
+
+-   **Internal storage**: Internal Storage of phone in GB -\> *dbl*
+    (normalised) *int* (non-normalised).
+
+-   **Rear camera**: Resolution of rear camera in MP (0 if unavailable)
+    -\> *dbl*
+
+-   **Front camera**: Resolution of front camera in MP (0 if
+    unavailable) -\> *dbl*
+
+-   **Operation system**: OS used in phone -\> *fct* with 7 levels of
+    the different OS such as Android, iOS...
+
+-   **Wi-Fi**: Whether phone has WiFi functionality -\> *fct* (1 = it
+    has; 0 = it has NOT).
+
+-   **Bluetooth**: Whether phone has Bluetooth functionality -\> *fct*
+    (1 = it has; 0 = it has NOT).
+
+-   **GPS**: Whether phone has GPS functionality -\> *fct* (1 = it has;
+    0 = it has NOT).
+
+-   **Number of SIMs**: Number of SIM card slots in phone -\> *fct* with
+    3 levels (1, 2 or 3 SIMs).
+
+-   **3G**: Whether phone has 3G network functionality -\> *fct* (1 = it
+    has; 0 = it has NOT).
+
+-   **4G/LTE**: Whether phone has 4G/LTE network functionality -\> *fct*
+    (1 = it has; 0 = it has NOT).
+
+-   **Price**: Price of the phone in € -\> *dbl* (normalised) *int*
+    (non-normalised).
+
+## 1.2 Visualization
+
+In this part of the practice we will make an visual analysis of the data
+in order to get a better understanding of the behaviour of it and the
+features. We will follow the next procedure:
+
+[Amount of devices per Brand:]{.underline}
+
+```{r}
+g2 = ggplot(data, aes(x = fct_infreq(Brand), fill = fct_infreq(Brand))) +
+     geom_bar() +
+     scale_fill_viridis_d(name = "Colours", direction = -1) +  # Use a color gradient
+     theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) +
+     labs(width = 15, height = 10) + 
+     labs(title = "Amount of devices per Brand", x = "Brands", y = "Amount")
+g2
+```
+
+The bast majority of cell phones are built by Intex, Samsung and
+Micromax.
+
+[Percentages of Touchscreen, WiFi, Bluetooth, GPS, 3G and 4G
+devices]{.underline}:
+
+```{r}
+# TOUCH SCREEN
+# Count occurrences of each category in the 'Touchscreen' column
+touchscreen_counts = table(data$Touchscreen)
+
+# Calculate percentages
+touchscreen_percentages = round(prop.table(touchscreen_counts) * 100, 2)
+
+# Create a data frame with the counts and percentages for plotting
+touchscreen_df = data.frame(
+  Touchscreen = names(touchscreen_counts),
+  Count = as.numeric(touchscreen_counts),
+  Percentage = touchscreen_percentages
+)
+
+# Create a pie chart with percentages using ggplot2
+gPie1 = ggplot(touchscreen_df, aes(x = "", y = Count, fill = Touchscreen)) +
+        geom_bar(stat = "identity", width = 1) +
+        coord_polar("y", start = 0) +
+        geom_text(aes(label = paste0(Percentage.Freq, "%")), 
+                      position = position_stack(vjust = 0.5), 
+                      size = 5,
+                      show.legend = FALSE) +
+        labs(fill = "TOUCHSCREEN") +
+        ggtitle("Distribution of Touchscreen") +
+        theme_void() +
+        scale_fill_manual(values = c("hotpink1", "mediumspringgreen"))
+```
+
+```{r}
+# WIFI
+# Count occurrences of each category in the 'Wi.Fi' column
+wifi_counts <- table(data$Wi.Fi)
+
+# Calculate percentages
+wifi_percentages <- round(prop.table(wifi_counts) * 100, 2)
+
+# Create a data frame with the counts and percentages for plotting
+wifi_df <- data.frame(
+  Wi.Fi = names(wifi_counts),
+  Count = as.numeric(wifi_counts),
+  Percentage = wifi_percentages
+)
+
+# Create a pie chart with percentages using ggplot2 for Wi.Fi
+gPie2 = ggplot(wifi_df, aes(x = "", y = Count, fill = Wi.Fi)) +
+        geom_bar(stat = "identity", width = 1) +
+        coord_polar("y", start = 0) +
+        geom_text(aes(label = paste0(Percentage.Freq, "%")), 
+                      position = position_stack(vjust = 0.5), 
+                      size = 5,
+                      show.legend = FALSE) +
+        labs(fill = "Wi.Fi") +
+        ggtitle("Distribution of WiFi") +
+        theme_void() +
+        scale_fill_manual(values = c("hotpink1", "mediumspringgreen"))
+```
+
+```{r}
+# BLUETOOTH
+# Count occurrences of each category in the 'Bluetooth' column
+bluetooth_counts = table(data$Bluetooth)
+
+# Calculate percentages
+bluetooth_percentages = round(prop.table(bluetooth_counts) * 100, 2)
+
+# Create a data frame with the counts and percentages for plotting
+bluetooth_df = data.frame(
+  Bluetooth = names(bluetooth_counts),
+  Count = as.numeric(bluetooth_counts),
+  Percentage = bluetooth_percentages
+)
+
+# Create a pie chart with percentages using ggplot2 for Bluetooth
+gPie3 = ggplot(bluetooth_df, aes(x = "", y = Count, fill = Bluetooth)) +
+        geom_bar(stat = "identity", width = 1) +
+        coord_polar("y", start = 0) +
+        geom_text(aes(label = paste0(Percentage.Freq, "%")), 
+                      position = position_stack(vjust = 0.5), 
+                      size = 5,
+                      show.legend = FALSE) +
+        labs(fill = "Bluetooth") +
+        ggtitle("Distribution of Bluetooth") +
+        theme_void() +
+        scale_fill_manual(values = c("hotpink1", "mediumspringgreen"))
+```
+
+```{r}
+# GPS
+# Count occurrences of each category in the 'GPS' column
+gps_counts = table(data$GPS)
+
+# Calculate percentages
+gps_percentages = round(prop.table(gps_counts) * 100, 2)
+
+# Create a data frame with the counts and percentages for plotting
+gps_df = data.frame(
+  GPS = names(gps_counts),
+  Count = as.numeric(gps_counts),
+  Percentage = gps_percentages
+)
+
+# Create a pie chart with percentages using ggplot2 for GPS
+gPie4 = ggplot(gps_df, aes(x = "", y = Count, fill = GPS)) +
+        geom_bar(stat = "identity", width = 1) +
+        coord_polar("y", start = 0) +
+        geom_text(aes(label = paste0(Percentage.Freq, "%")), 
+                      position = position_stack(vjust = 0.5), 
+                      size = 5,
+                      show.legend = FALSE) +
+        labs(fill = "GPS") +
+        ggtitle("Distribution of GPS") +
+        theme_void() +
+        scale_fill_manual(values = c("hotpink1", "mediumspringgreen"))
+```
+
+```{r}
+# 3G
+# Count occurrences of each category in the 'X3G' column
+x3g_counts = table(data$X3G)
+
+# Calculate percentages
+x3g_percentages = round(prop.table(x3g_counts) * 100, 2)
+
+# Create a data frame with the counts and percentages for plotting
+x3g_df = data.frame(
+  X3G = names(x3g_counts),
+  Count = as.numeric(x3g_counts),
+  Percentage = x3g_percentages
+)
+
+# Create a pie chart with percentages using ggplot2 for X3G
+gPie5 = ggplot(x3g_df, aes(x = "", y = Count, fill = X3G)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(Percentage.Freq, "%")), 
+            position = position_stack(vjust = 0.5), 
+            size = 5,
+            show.legend = FALSE) +
+  labs(fill = "X3G") +
+  ggtitle("Distribution of 3G") +
+  theme_void() +
+  scale_fill_manual(values = c("hotpink1", "mediumspringgreen"))
+```
+
+```{r}
+# 4G LTE
+# Count occurrences of each category in the 'X4G..LTE' column
+x4g_lte_counts = table(data$X4G..LTE)
+
+# Calculate percentages
+x4g_lte_percentages = round(prop.table(x4g_lte_counts) * 100, 2)
+
+# Create a data frame with the counts and percentages for plotting
+x4g_lte_df = data.frame(
+  X4G_LTE = names(x4g_lte_counts),
+  Count = as.numeric(x4g_lte_counts),
+  Percentage = x4g_lte_percentages
+)
+
+# Create a pie chart with percentages using ggplot2 for X4G..LTE
+gPie6 = ggplot(x4g_lte_df, aes(x = "", y = Count, fill = X4G_LTE)) +
+        geom_bar(stat = "identity", width = 1) +
+        coord_polar("y", start = 0) +
+        geom_text(aes(label = paste0(Percentage.Freq, "%")), 
+                      position = position_stack(vjust = 0.5), 
+                      size = 5,
+                      show.legend = FALSE) +
+        labs(fill = "X4G..LTE") +
+        ggtitle("Distribution of 4G LTE") +
+        theme_void() +
+        scale_fill_manual(values = c("hotpink1", "mediumspringgreen"))
+```
+
+```{r}
+# All the Pie charts together
+g3 = grid.arrange(gPie1, gPie2, gPie3, gPie4, gPie5, gPie6, ncol = 3)
+```
+
+We see that the amount of devices without either a touchscreen, WiFi or
+Bluetooth are negligible. In terms of phones without GPS or 3G
+capabilities are around 10% which explains a market cap in which the
+target audience are users that just want phones to call. However the 25%
+of phones without 4G LTE connection suggests that probably cheap phones
+do not have that capability. This will be studied in the next plot.
+
+[4G LTE vs 3G vs GPS in terms of Price]{.underline}:
+
+```{r}
+# Create a grouped bar plot
+g4 = ggplot(data, aes(x = GPS, y = Price, fill = factor(X3G))) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", alpha = 0.8) +
+  labs(x = "GPS Capability", y = "Price", fill = "X3G Capability", 
+       title = "Price vs. GPS and X3G Capabilities") +
+  scale_fill_discrete(name = "X3G Capability", labels = c("No", "Yes")) +
+  theme_minimal()
+g4
+```
+
+```{r}
+g5 = ggplot(data, aes(x = GPS, y = Price, fill = X4G..LTE)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black", alpha = 0.8) +
+  labs(x = "GPS Capability", y = "Price", fill = "4G LTE Capability", 
+       title = "Price vs. GPS and 4G LTE Capabilities") +
+  scale_fill_discrete(name = "4G LTE Capability", labels = c("No", "Yes")) +
+  theme_minimal()
+g5
+```
+
+```{r}
+g6 = ggplot(data, aes(x = GPS, y = Price, fill = X3G)) + 
+     geom_boxplot() + facet_grid(data$X4G..LTE) +
+     labs(title = "Price vs. 4G LTE, GPS and X3G", x = "GPS", y = "Price") +
+     ylim(c(0,750))
+g6
+```
+
+We see that low-budget phones tend to be overall devices without GPS and
+3G capable. We also find that there are a significant amount of devices
+without 3G while having 4G LTE.
+
+[Operating Systems]{.underline}:
+
+*OS and Prices*:
+
+```{r}
+g7 = ggplot(data_old) + aes(x = Operating.system, y = Price, 
+                        fill = Operating.system) + 
+     geom_boxplot() + theme(legend.position = "none") + 
+     labs(title = "Operating System and their Prices", x = "OS", y = "Price")
+g7
+```
+
+From the plot it can be deduced that iOS devices are the most expensive,
+while Cyanogen, Sailfish and Tizen not. Another thing to mention is the
+amount of outliers in the Android devices, they tend to be lower than
+300€ however there are a considerable number of high-end phones.
+
+*OS devices*:
+
+```{r}
+g8 = ggplot(data, aes(x = fct_infreq(Operating.system))) +
+     geom_bar(fill = "skyblue", color = "black") +
+     scale_fill_viridis_d(direction = -1) +
+     labs(x = "Operating System", y = "Count", title = "OS count")
+g8
+```
+
+The bast majority of devices are Android and surprisingly there are more
+Windows phones than iOS devices.
+
+[Numerical Features]{.underline}:
+
+*Battery Capacity*:
+
+```{r}
+g9 = ggplot(data_old, aes(x = Battery.capacity..mAh.)) +
+     geom_density(fill = "royalblue", color = "skyblue", alpha = 0.75) +
+     labs(x = "Battery capacity (mAh)", y = "Density", title = "Distribution of Battery Capacity")
+g9
+```
+
+From the distribution we deduce that there are three main smartphones
+categories. The majority of the cellphones are using a between a 2000
+and 3000 mAh; the high-end phones around 4000 mAh; and the ones just
+dedicated for extreme duration around 5000 mAh.
+
+*Cameras*:
+
+```{r}
+g10 = ggplot(data_old) + aes(x = Rear.camera, y = Front.camera) + 
+  geom_count(color  ="lightslateblue") + geom_smooth(method = "lm") + 
+  labs(title = "Rear vs Front camera", x = "Rear camera", y = "Front camera")
+g10
+```
+
+The majority of the phones have lower-end cameras. Also, most of the
+phones tend to have better rear camera than the front. Nonetheless, in
+the 20 to 40 MP range of the front camera the most common behaviour is
+that the front camera is better than the rear camera.
+
+```{r}
+g11 = ggplot(data_old)+aes(x = Rear.camera, y = Front.camera) + 
+      geom_point(aes(color = Price)) + scale_color_continuous(trans = "log")
+g11
+```
+
+When studying the camera quality and the price we do not get any
+surprises, the lower the camera quality the lower the price.
+
+*Screen's Resolution*:
+
+```{r}
+g12 = plot_ly(data = data_old, x = ~Resolution.x, y = ~Resolution.y, 
+              type = "scatter", mode = "markers") %>%
+      layout(title = "Screen's Resolution", xaxis = list(title = "X resolution"),
+             yaxis = list(title = "Y resolution"))
+g12
+```
+
+Phones with screens seem to have 3 main resolutions 480p (480 x 800),
+720p (720 x 1280) and 1080p plus (1080 x 2200). (Note that the x and y
+resolutions are in a vertical orientation as we are studying smartphones
+not televisions or any other kind of horizontal monitors).
+
+[Screen Size vs Price by Most popular Brand:]{.underline}
+
+```{r}
+ggplot(data_old %>% filter(Brand %in% c("Intex", "Samsung", "Micromax", "Lava",
+                                     "Panasonic", "Vivo", "Xiaomi", "Apple"))) +
+  aes(x = Screen.size..inches., y = Brand[Brand %in% c("Intex", "Samsung",
+                                                       "Micromax", "Lava",
+                                     "Panasonic", "Vivo", "Xiaomi", "Apple")]) +
+  geom_violin(alpha = 0.3, fill = "skyblue") +  # Adjusted fill color
+  geom_jitter(aes(color = Price)) +
+  scale_color_viridis_c(trans = "log", direction = -1) +  # Reversed color scale orientation
+  labs(title = "Screen Size vs Price by Brands", y = "Brands") + coord_flip()
+```
+
+We selected the brands with the highest amount of smartphones and Apple
+to have a comparison in prices. We saw that smartphones with bigger
+screens are the most expensive no matter the brand. But that is just
+within devices of a specific brand. That means, if you take, for
+instance, a smartphone from Lava the smallest device will be the
+cheapest Lava smartphone. In overall terms, from 5.5 inches you cannot
+tell the difference of price just by the screen size. But you can if you
+consider the brand.
+
+# 2. Classification
+
+In this section of the project, we delve into the implementation and
+evaluation of several supervised learning techniques. As we want to
+predict the price of a phone given its characteristics, we will divide
+in two major groups to classify:
+
+-   *Expensive*: cell phones that cost more than 100€.
+
+-   *Cheap*: mobile phones that cost less or equal than 100€.
+
+Before doing any classification supervised learning technique, we must
+interpret correlations to focus on prediction.
+
+```{r}
+gCor1 = ggplot() + aes(x = cor(data_numerical)["Price",], 
+                           y = reorder(names(cor(data_numerical)["Price",]),
+                                       cor(data_numerical)["Price",])) +
+        geom_col(fill = "mediumorchid1") + labs(title = "Correlations",
+          x = "Correlation",y = "Variables") + theme_bw()
+gCor1
+```
+
+```{r}
+gCor2 = ggcorr(data_numerical, label = TRUE)
+gCor2
+```
+
+Now we create the groups for price, son we create a new variable named
+PriceClass:
+
+```{r}
+data_old$PriceClass = factor(ifelse(data_old$Price < 100, "Cheap", "Expensive"))
+levels(data_old$PriceClass)
+
+count <- table(data_old$PriceClass)
+percentages <- prop.table(count) * 100
+percentages
+
+data_classification <- data_old
+data_classification$Price = NULL
+
+# We need to remove the Brand name too, since it is not useful for the classification
+data_classification$Brand = NULL
+```
+
+Now we divide in test and training sets.
+
+```{r}
+spl = createDataPartition(data_classification$PriceClass, p = 0.8, list = FALSE)
+
+PhonesTrain = data_classification[spl,]
+PhonesTest = data_classification[-spl,]
+
+t = table(PhonesTrain$PriceClass)
+prop.table(t)
+```
+
+We can see that the data set is more or less balanced, where the cheap
+phones are the 62% and the expensive ones the 38%.
+
+```{r}
+table(PhonesTrain$PriceClass, PhonesTrain$Internal.storage..GB.)
+
+ggplot(PhonesTrain, aes(x=PriceClass, fill = as.factor(Internal.storage..GB.))) + geom_bar()
+
+ggplot(PhonesTrain, aes(x= as.factor(Internal.storage..GB.),fill = PriceClass)) + geom_bar()
+```
+
+The phones with highest Internal Storage belong to the Expensive group.
+The inverse happens with the lowest Storage values. However, phones with
+16 and 32 GB storages are very distributed between the 2 groups.
+
+## 2.1 Logistic Regression
+
+Because we have binary classification, we can use the standard glm
+function in R:
+
+```{r}
+logit.model <- glm(PriceClass ~ ., family=binomial(link='logit'), data=PhonesTrain)
+summary(logit.model)
+```
+
+```{r}
+probability <- predict(logit.model,newdata=PhonesTest, type='response')
+head(probability)
+prediction <- as.factor(ifelse(probability > 0.5,"Expensive","Cheap"))
+head(prediction)
+```
+
+The confusion matrix is:
+
+```{r}
+conf_log_reg = confusionMatrix(prediction, PhonesTest$PriceClass)
+conf_log_reg
+```
+
+We can see that the accuracy obtained is pretty good (0.82).
+
+### 2.1.1 Penalized Logistic Regression
+
+Even though the dimension of the data set is not very high, we are going
+to try the penalized version:
+
+```{r}
+p.logit.model <- glmnet(as.matrix(PhonesTrain[,-1]),PhonesTrain$PriceClass, family=c("binomial"), alpha=0, lambda=0.01)
+
+probability <- predict(p.logit.model,as.matrix(PhonesTrain[,-1]), type='response')
+
+prediction <- as.factor(ifelse(probability > 0.5,"Expensive","Cheap"))
+
+conf_p_log_reg = confusionMatrix(prediction, PhonesTrain$PriceClass)
+conf_p_log_reg
+```
+
+An accuracy of 0.83 was obtained, no appreciable improvement.
+
+### 2.1.2 ROC curve
+
+ROC curve shows true positives vs false positives in relation with
+different thresholds:
+
+-   y-axis = Sensitivity (TP)
+-   x-axis = Specificity (1-FP)
+
+```{r}
+model <- lda(PriceClass ~ ., data=PhonesTrain, prior = c(.9, .1))
+
+probability = predict(model, PhonesTest)$posterior
+
+roc.lda <- roc(PhonesTest$PriceClass,probability[,2])
+auc(roc.lda) 
+
+plot.roc(PhonesTest$PriceClass, probability[,2],col="darkblue", print.auc = TRUE,  auc.polygon=TRUE, grid=c(0.1, 0.2), 
+grid.col=c("green", "red"), max.auc.polygon=TRUE,auc.polygon.col="lightblue", print.thres=TRUE, legacy.axes = TRUE)
+
+# Esto está al reves? pero ns como cambiarlo:
+#Setting levels: control = Cheap, case = Expensive
+#Setting direction: controls < cases
+```
+
+The AUC is 0.902, which means that we have a great prediction.
+
+A threshold around 0.05 seems to be the more balanced one. However, a
+company may need a different one depending on their interests.
+
+## 2.2 Bayes Classifiers
+
+### 2.2.1 LDA
+
+We are going to start with a LDA (Linear Discriminant Analysis), where
+variance is reduced by introducing some bias.
+
+```{r}
+lda.model1 <- lda(PriceClass ~ ., data=PhonesTrain, prior = c(3/5, 2/5)) 
+lda.model1
+```
+
+Note prior = c(3/5, 2/5) are roughly the class proportions for the
+training set, hence it's equivalent to
+
+```{r}
+lda.model2 <- lda(PriceClass ~ ., data=PhonesTrain)
+lda.model2
+```
+
+In practice, a bit better performance is attained if we shrink the prior
+probabilities towards 1/3
+
+Output: posterior probabilities
+
+```{r}
+probability = predict(lda.model2, newdata=PhonesTest)$posterior 
+head(probability)
+```
+
+To predict the labels for delay, we apply the Bayes rule of maximum
+probability
+
+```{r}
+prediction <- max.col(probability) 
+head(prediction)
+```
+
+which is equivalent to
+
+```{r}
+prediction = predict(lda.model2, newdata=PhonesTest)$class 
+head(prediction)
+```
+
+**Performance**
+
+The confusion matrix: predictions in rows, true values in columns (but
+we can change the order)
+
+```{r}
+conf_lda_matrix = confusionMatrix(prediction, PhonesTest$PriceClass)$table
+conf_lda_matrix
+confusionMatrix(prediction, PhonesTest$PriceClass)$overall[1]
+```
+
+### 2.2.2 QDA
+
+```{r}
+#qda.model1 <- qda(PriceClass ~ ., data=PhonesTrain, prior = c(3/5, 2/5))
+#qda.model1
+```
+
+```{r}
+#qda.model2 <- qda(PriceClass ~ ., data=PhonesTest, prior = c(3/5, 2/5))
+#qda.model2
+```
+
+**Performance:**
+
+```{r}
+#prediction = predict(qda.model2, newdata=PhonesTest)$class 
+#confusionMatrix(prediction, PhonesTest$PriceClass)$table
+#confusionMatrix(prediction, PhonesTest$PriceClass)$overall[1]
+```
+
+### 2.2.3 Benchmark Model
+
+We have many predictors, hence our benchmark will be the penalized
+logistic regression
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 5,                      
+                     classProbs = TRUE,                       
+                     verboseIter=T)  
+# We have many predictors, hence use penalized logistic regression 
+lrFit <- train(PriceClass ~ .,                 
+               method = "glmnet",               
+               tuneGrid = expand.grid(alpha = seq(0, 1, 0.1), 
+                                      lambda = seq(0, .1, 0.02)),     
+               metric = "Kappa",         
+               data = PhonesTrain,     
+               preProcess = c("center", "scale"), 
+               trControl = ctrl) 
+print(lrFit) 
+lrPred = predict(lrFit, PhonesTest) 
+confusionMatrix(lrPred, PhonesTest$PriceClass)
+```
+
+The accuracy obtained is around 81% and Kappa around 0.56, not bad but
+should be improved.
+
+### 2.2.4 Naïve Bayes
+
+A technology resale company needs to know if buying a second hand phone
+would be or not profitable. Therefore, we need to set some guidelines in
+order to be able to determine in the most optimal way the price of a
+phone without knowing what a person would actually pay for it.
+
+We decided to assume the following costs of each possible outcome:
+
+-   Cost of true cheap phones is 0: The company buys the phone and sells
+    it to the price we estimated.
+
+-   Cost of false expensive is 70: The company sells the phone cheap
+    when people would pay for it even if it was expensive.
+
+-   Cost of false cheap is 200: (The most problematic error) The company
+    pays a lot for a phone that is not sold unless it was cheaper.
+
+-   Cost of true expensives is 0: The company buys the phone and sells
+    it to the price we estimated.
+
+Cost matrix:
+
+| Prediction/Reality | Cheap | Expensive |
+|--------------------|------:|----------:|
+| Cheap              |     0 |        70 |
+| Expensive          |   200 |         0 |
+
+Unit cost is then:
+
+0\*TN + 70\*FP + 200\*FN + 0\*TP
+
+```{r}
+# Type the unit cost here:
+cost.unit <- c(0, 70, 200, 0)
+```
+
+Therefore, the unit cost for **Naive classifier** (no analytics
+knowledge) would be:
+
+cost = 0\*0.62 + 200\*0 + 70\*0.38 + + 0\*0 = 27 eur/phone on average
+
+However, lets study if we can reduce this cost:
+
+Let's use the threshold from the ROC curve, which was 0.05
+
+```{r}
+threshold = 0.05
+lrProb = predict(lrFit, PhonesTest, type="prob")
+lrPred = rep("Cheap", nrow(PhonesTest))
+lrPred[which(lrProb[,2] > threshold)] = "Expensive"
+confusionMatrix(factor(lrPred), PhonesTest$PriceClass)
+```
+
+Now we compute the cost per phone
+
+```{r}
+CM = confusionMatrix(factor(lrPred), PhonesTest$PriceClass)$table
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+The cost per unit obtained is 33 eur, greater than the naive one. This
+tells us that even if the ROC curve's gave us a threshold, this does not
+mean that is the best option for our company. Furthermore, we must find
+the threshold value that optimizes the cost per phone, so it is as low
+as possible.
+
+We tried the raw models with a fixed threshold to see our starting
+point:
+
+```{r}
+paste0("Logistic Regression model costs: ",sum(as.vector(conf_log_reg$table)*cost.unit)/sum(conf_log_reg$table))
+
+paste0("Penalized Logistic Regression model costs: ",sum(as.vector(conf_p_log_reg$table)*cost.unit)/sum(conf_p_log_reg$table))
+
+paste0("ROC curve costs: ", cost)
+
+paste0("LDA model costs: ",sum(as.vector(conf_lda_matrix)*cost.unit)/sum(conf_lda_matrix))
+```
+
+The best one was the logistic regression model, with 26.82 eur/phone
+cost. Let us try to reduce this value by optimizing the threshold:
+
+#### 2.2.4.1 Cost-sensitive classifier
+
+However, the cost we obtained is only with a fixed threshold, so if this
+threshold is optimized we can obtain then the best logistic regression
+model for our prediction:
+
+```{r error=FALSE}
+cost.i = matrix(NA, nrow = 100, ncol = 10)
+# 20 replicates for training/testing sets for each of the 10 values of threshold
+
+j <- 0
+for (threshold in seq(0.05,0.5,0.05)){
+  
+  j <- j + 1
+  
+  cat(j)
+  for(i in 1:100){
+    
+    # partition data intro training (80%) and testing sets (20%)
+    d <- createDataPartition(PhonesTrain$PriceClass, p = 0.8, list = FALSE)
+    # select training sample
+    
+    train <- PhonesTrain[d,]
+    test  <- PhonesTrain[-d,]  
+
+    lrFit <- train(PriceClass ~ ., data=train, method = "glmnet",
+                   tuneGrid = data.frame(alpha = 0.3, lambda = 0),
+                   preProcess = c("center",
+                                  "scale"),
+                   trControl = trainControl(method = "none", classProbs = TRUE))
+    
+    lrProb = predict(lrFit, test, type="prob")
+    lrPred = rep("Cheap", nrow(test))
+    lrPred[which(lrProb[,2] > threshold)] = "Expensive"
+    
+    CM = confusionMatrix(factor(lrPred), test$PriceClass)$table
+    cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+    cost
+    
+    cost.i[i,j] <- cost
+    
+  }
+}
+```
+
+```{r}
+# Threshold optimization:
+boxplot(cost.i, main = "Threshold selection",
+        ylab = "unit cost",
+        xlab = "threshold value",
+        names = seq(0.05,0.5,0.05),col="royalblue2",las=2)
+
+# values around 0.2 are reasonable
+apply(cost.i, 2, median)
+```
+
+We can see that the best threshold value is 0.25, which has a mean cost
+of 22 eur/phone. We can see that we have reduced the cost that we got
+with the raw classifiers.
+
+The final prediction using this threshold is:
+
+```{r}
+threshold = 0.25
+lrFit <- train(PriceClass ~ ., data=PhonesTrain, method = "glmnet",
+               tuneGrid = data.frame(alpha = 0.3, lambda = 0), preProcess = c("center", "scale"),
+               trControl = trainControl(method = "none", classProbs = TRUE))
+lrProb = predict(lrFit, PhonesTest, type="prob")
+lrPred = rep("Cheap", nrow(PhonesTest))
+lrPred[which(lrProb[,2] > threshold)] = "Expensive"
+CM = confusionMatrix(factor(lrPred), PhonesTest$PriceClass)$table
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+We obtained a cost of 18.5 eur/phone. This is the lowest cost obtained
+so far, so we can set the threshold in 0.25.
+
+## 2.3 Machine Learning Tools
+
+### 2.3.1 Decision Trees
+
+```{r}
+library(rpart)
+
+# Hyper-parameters
+control = rpart.control(minsplit = 30, maxdepth = 10, cp=0.01)
+
+# minsplit: minimum number of observations in a node before before a split
+# maxdepth: maximum depth of any node of the final tree
+# cp: degree of complexity, the smaller the more branches
+
+```
+
+A decision tree
+
+```{r}
+model = PriceClass ~.
+dtFit <- rpart(model, data=PhonesTrain, method = "class", control = control)
+summary(dtFit)
+```
+
+```{r}
+library(rpart.plot)
+rpart.plot(dtFit, digits=3)
+```
+
+To create a full tree, we can set the complexity parameter cp to 0
+(split even if it does not improve the tree) and we set the minimum
+number of observations in a node needed to split to the smallest value
+of 2
+
+```{r}
+control = rpart.control(minsplit = 40, maxdepth = 12, cp=0.001)
+dtFit <- rpart(model, data=PhonesTrain, method = "class", control = control)
+
+rpart.plot(dtFit, digits = 3)
+```
+
+**Prediction**:
+
+```{r}
+dtPred <- predict(dtFit, PhonesTest, type = "class")
+
+dtProb <- predict(dtFit, PhonesTest, type = "prob")
+threshold = 0.3
+dtPred = rep("Cheap", nrow(PhonesTest))
+dtPred[which(dtProb[,2] > threshold)] = "Expensive"
+CM = confusionMatrix(factor(dtPred), PhonesTest$PriceClass)$table
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+By using the decission tree algorithm we obtain a cost of 20.5
+eur/phone. However, the cost obtained with the cost-sensitive classifier
+is better (18.5 eur/phone).
+
+Now using **Caret**, we have:
+
+```{r}
+library(caret)  
+caret.fit <- train(model, data = PhonesTrain,
+                   method = "rpart",
+                   control=rpart.control(minsplit = 40, maxdepth = 12),
+                   trControl = trainControl(method = "cv", number = 5), 
+                   tuneLength=10) 
+# caret.fit
+```
+
+Visualization
+
+```{r}
+rpart.plot(caret.fit$finalModel) 
+```
+
+Prediction
+
+```{r}
+dtProb <- predict(caret.fit, PhonesTest, type = "prob") 
+threshold = 0.3
+dtPred = rep("Cheap", nrow(PhonesTest)) 
+dtPred[which(dtProb[,2] > threshold)] = "Expensive" 
+CM = confusionMatrix(factor(dtPred), PhonesTest$PriceClass)$table 
+cost = sum(as.vector(CM)*cost.unit)/sum(CM) 
+cost
+```
+
+We obtained 20.50 eur/phone again, there was no improvement in this
+method.
+
+Lets try now the Random Forest.
+
+### 2.3.2 Random Forests
+
+```{r, error=FALSE}
+rf.train <- randomForest(PriceClass ~., data=PhonesTrain, 
+                         ntree=200,
+                         mtry=10,
+                         cutoff=c(0.75,0.25),
+                         importance=TRUE,
+                         do.trace=T)
+
+# mtry: number of variables randomly sampled as candidates at each split
+# ntree: number of trees to grow
+# cutoff: cutoff probabilities in majority vote
+```
+
+Prediction
+
+```{r}
+rf.pred <- predict(rf.train, newdata=PhonesTest)
+CM = confusionMatrix(factor(rf.pred), PhonesTest$PriceClass)$table
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+In this case, the cost obtained is 20 eur/phone. We improved the
+previous cost but it is not enough, since the classifier is still the
+best.
+
+Now we are going to use **caret** to try to improve the random forest:
+
+We define the specific function for the cost:
+
+```{r}
+EconomicCost <- function(data, lev = NULL, model = NULL)  {   
+  y.pred = data$pred    
+  y.true = data$obs   
+  CM = confusionMatrix(y.pred, y.true)$table   
+  out = sum(as.vector(CM)*cost.unit)/sum(CM)   
+  names(out) <- c("EconomicCost")   
+  out 
+  }
+```
+
+Now include this function in the Caret control:
+
+```{r}
+ctrl <- trainControl(method = "cv", 
+                     number = 5,                      
+                     classProbs = TRUE,                       
+                     summaryFunction = EconomicCost,                  
+                     verboseIter=T)
+```
+
+Now train a RF using Caret with the specific metric:
+
+```{r, error=FALSE}
+rf.train <- train(PriceClass ~.,  
+                  method = "rf",       
+                  data = PhonesTrain,  
+                  preProcess = c("center", "scale"),   
+                  ntree = 200,           
+                  cutoff=c(0.7,0.3),        
+                  tuneGrid = expand.grid(mtry=c(6,8,10)), 
+                  metric = "EconomicCost",     
+                  maximize = F,          
+                  trControl = ctrl)
+```
+
+Variable importance:
+
+```{r}
+rf_imp <- varImp(rf.train, scale = F) 
+plot(rf_imp, scales = list(y = list(cex = .95)))
+```
+
+Prediction:
+
+```{r}
+rfPred = predict(rf.train, newdata=PhonesTest) 
+CM = confusionMatrix(factor(rfPred), PhonesTest$PriceClass)$table 
+cost = sum(as.vector(CM)*cost.unit)/sum(CM) 
+cost
+```
+
+We can see that the cost would be 18.2 eur/phone. This result is the
+best one obtained so far, however, we still need to try the gradient
+boosting before choosing the best option.
+
+### 2.3.3 Gradient Boosting
+
+```{r}
+GBM.train <- gbm(ifelse(PhonesTrain$PriceClass=="Cheap",0,1) ~., 
+                 data=PhonesTrain, 
+                 distribution= "bernoulli",
+                 n.trees=250,
+                 shrinkage = 0.01,
+                 interaction.depth=2,
+                 n.minobsinnode = 8) 
+```
+
+Prediction and cost
+
+```{r}
+threshold = 0.3
+gbmProb = predict(GBM.train, newdata=PhonesTest, n.trees=250, type="response") 
+gbmPred = rep("Cheap", nrow(PhonesTest)) 
+gbmPred[which(gbmProb > threshold)] = "Expensive" 
+CM = confusionMatrix(factor(gbmPred), PhonesTest$PriceClass)$table 
+cost = sum(as.vector(CM)*cost.unit)/sum(CM) 
+cost
+```
+
+Not a very good result.
+
+Let's try now xgboost with Caret. Define first a grid for the
+hyperparameters:
+
+```{r}
+xgb_grid = expand.grid(nrounds = c(500,1000),   
+                      eta = c(0.01, 0.001), # c(0.01,0.05,0.1)   
+                      max_depth = c(2, 4, 6),  
+                      gamma = 1,  
+                      colsample_bytree = c(0.2, 0.4),  
+                      min_child_weight = c(1,5),  
+                      subsample = 1 )
+```
+
+Then, train
+
+```{r, error=FALSE}
+xgb.train = train(PriceClass ~ ., 
+                  data=PhonesTrain,    
+                  trControl = ctrl,   
+                  metric="EconomicCost",    
+                  maximize = F,      
+                  tuneGrid = xgb_grid,  
+                  preProcess = c("center", "scale"), 
+                  method = "xgbTree" )
+```
+
+Variable importance:
+
+```{r}
+xgb_imp <- varImp(xgb.train, scale = F)
+plot(xgb_imp, scales = list(y = list(cex = .95)))
+```
+
+Prediction and cost:
+
+```{r}
+threshold = 0.3
+xgbProb = predict(xgb.train, newdata=PhonesTest, type="prob") 
+xgbPred = rep("Cheap", nrow(PhonesTest)) 
+xgbPred[which(xgbProb[,2] > threshold)] = "Expensive" 
+CM = confusionMatrix(factor(xgbPred), PhonesTest$PriceClass)$table
+cost = sum(as.vector(CM)*cost.unit)/sum(CM)
+cost
+```
+
+The cost obtained is 17.5 eur/phone, which is the best output obtained
+so far.
+
+## 2.4 Conclusion of Classification
+
+Now that we have finished the classification section, we can say that we
+managed to improve the savings of the fictional company by reducing the
+cost of each phone.
+
+By selecting the best classifier, the Gradient Boosting one, we achieved
+a cost of 17.5 eur/phone. When we compare it to the naïve classifier
+that gave a cost of 33 eur/phone or the raw logistic regression
+classifier, with 27eur/phone cost, it may seem that there was no big
+improvement. However, if you take the 15 euros difference between
+classifiers, and multiply it by just a 1000 phones, we have 15000 euros
+of savings. Therefore, for a big company this little change can make the
+difference.
+
+To sum up, being able to use these classification tools and select the
+best one in a real company can help them to earn much more money from
+each sale.
+
+# 3. Advanced Regression
+
+First we need to see which variables are the most correlated ones with
+the Price:
+
+```{r}
+set.seed(123)
+str(data) 
+data_cor = data[,c(-1, -4, -12, -13, -14, -15, -16, -17, -18)] #Remove non-numerical variables 
+
+corr_delay <- sort(cor(data_cor)["Price",], decreasing = T)
+corr=data.frame(corr_delay) 
+
+ggplot(corr,aes(x = row.names(corr), y = corr_delay)) +    geom_bar(stat = "identity", fill = "lightblue") +    scale_x_discrete(limits= row.names(corr)) +   labs(x = "", y = "Price", title = "Correlations") +    theme(plot.title = element_text(hjust = 0, size = rel(1.5)),         axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+We can see that the most correlated variable with *Price* is the
+*Internal.storage..GB*, followed by *RAM..MB* and the *Resolution*.
+However, all variables are over 0.25, showing some kind of relationship
+with the price.
+
+Remembering relationships between variables...
+
+```{r}
+gCor1
+gCor2
+cor_mat = cor(data_numerical)
+heatmap(cor_mat)
+```
+
+We see that the screen's *resolution* can be almost represented by one
+of the axis. This makes sense as smartphones tend to maintain a basic
+resolution (for example 1080p) but it is adjusted depending on the
+height of the device (*y axis*). We can see this properly in graph
+*g12*.
+
+```{r}
+g12
+```
+
+This makes us reckon that there is a chance of getting a better model in
+eliminating the *Resolution.x*. Despite that, we will not delete that
+feature, by now.
+
+Another detail to mention must be the relationship between the memories,
+internal and RAM, strongly related between them but not as strong as the
+resolutions.
+
+The goal of this part is to create a regression model made of numerical
+variables such that we can predict the price of a mobile phone given
+certain characteristics. We will make other splits but now using Price
+with its numerical values.
+
+```{r}
+# set.seed(123)
+for_training = createDataPartition(log(data$Price), p = 0.75, list = FALSE)
+# 75% for training
+training = data[ for_training,]
+testing = data[- for_training,]
+```
+
+From now on, we will use *training* and *testing.*
+
+## 3.1 Simple and Multiple Regression Models
+
+As a first approach to build the best possible model, the fastest idea
+is to use simple and multiple regression models.
+
+For the simple regression models, we will use the most correlated
+variables as we have seen in the correlation matrix above. Before that,
+let's get some insights on the relationships between the most correlated
+variables.
+
+Let's see first the variability of *Price*:
+
+```{r}
+training %>% ggplot(aes(x=Price)) + geom_density(fill="navyblue")
+training %>% ggplot(aes(x=Price / Internal.storage..GB.)) + geom_density(fill="navyblue")
+training %>% ggplot(aes(x= Price, y = Internal.storage..GB.)) + 
+             geom_point(fill="navyblue")  # Most "constant" variability
+# training %>% ggplot(aes(x= log(Price), y = Internal.storage..GB.)) + 
+#              geom_point(fill="navyblue")
+# training %>% ggplot(aes(x= Price, y = log(Internal.storage..GB.))) + 
+#              geom_point(fill="navyblue")
+# training %>% ggplot(aes(x= log(Price), y = log(Internal.storage..GB.))) + 
+#              geom_point(fill="navyblue")
+```
+
+We see that *Price* itself has a lower variability and, in fact, using
+it per GB of internal storage it has an even lower variability. This is
+indicating that *Internal.storage..GB.* is a feature to not leave out.
+Also, we saw that logarithms did not help to reduce the variability.
+Therefore for our simple model we will just use *Price* along
+*Internal.storage..GB*.
+
+### 3.1.1 *Simple Regression Model*
+
+```{r}
+# Simple regression model with just Price and Internal Storage
+simple1 = lm(Price ~ Internal.storage..GB., data = training)
+summary(simple1)  # poor result R^2 = 0.4333
+cor(predict(simple1, newdata = testing), testing$Price) ^ 2  # tested result
+par(mfrow=c(2,2))
+plot(simple1, pch = 23 ,bg='mediumpurple3', cex = 2)
+```
+
+Despite an R-squared below 0.45 we see that we are on a *"good path"* as
+the residuals seem to have enough flexibility and the Normal Q-Q seems
+to be proper. However, the Scale-Location and the Residuals vs Leverage
+shows us that there is a big room for improvement, in addition to that
+0.4333 of R-squared value. Nontheless, the predicted R\^2 is below 0.40.
+
+### 3.1.2 *Multiple Regression Model*
+
+Now, we will use more variables in seek of the best model.
+
+```{r}
+# multiple1 = lm(Price ~ Internal.storage..GB. + RAM..MB. + Resolution.y*
+#                 Resolution.x + Screen.size..inches., 
+#                data = training)
+# summary(multiple1)
+
+# multiple2 = lm(Price ~ Internal.storage..GB.* RAM..MB. + Resolution.y *
+#                  Resolution.x + Screen.size..inches., 
+#                data = training)
+# summary(multiple2)
+
+# multiple3 = lm(Price ~ Internal.storage..GB.* RAM..MB. + Resolution.y *
+#                  Resolution.x + Screen.size..inches. + Rear.camera * Front.camera, 
+#                data = training)
+# summary(multiple3) # Adjusted R-squared:  0.593 
+
+multiple4 = lm(Price ~ Internal.storage..GB.* RAM..MB. + 
+                 Resolution.y * Resolution.x + 
+                 Front.camera + Processor * Battery.capacity..mAh.,
+               data = training)
+summary(multiple4)
+cor(predict(multiple4, newdata = testing), testing$Price)^2   # 0.4415989
+```
+
+After trying several combinations, the best multiple regression model
+was the one in which we paired numerical variables. The result was good
+in theory around R-squared value as 0.5927. However, when predicting
+with that model we got a bit more than 0.44. So this is where we started
+to realise that we needed to take into account somehow categorical
+variables in a numerical model.
+
+We consider that the Brand and Operating system of a mobile phone can be
+a crucial factor to determine its price. Therefore, we will pass them
+from categorical to numerical and then normalise them. Then we will
+repeat the procedure for the Multiple regression and see what is the
+result (using re-created splits).
+
+```{r}
+# Brand from categorical to normalised numerical
+data$Brand = as.factor(data$Brand)
+data$Brand = as.integer(data$Brand)
+data$Brand = (data$Brand - min(data$Brand)) / (max(data$Brand) - min(data$Brand))
+
+# Operating System from categorical to normalised numerical
+data$Operating.system = as.factor(data$Operating.system)
+data$Operating.system = as.integer(data$Operating.system)
+data$Operating.system = (data$Operating.system - min(data$Operating.system)) / 
+                        (max(data$Operating.system) - min(data$Operating.system))
+
+# We will re-create the partitions
+for_training = createDataPartition(log(data$Price), p = 0.75, list = FALSE)
+# 75% for training
+training = data[ for_training,]
+testing = data[- for_training,]
+```
+
+After changing combinations and selecting variables, the best multiple
+regression model obtained was:
+
+```{r}
+multipleBest = lm(Price ~ Internal.storage..GB.* RAM..MB. + Resolution.y *
+                 Resolution.x + Front.camera +
+                 Brand * Operating.system, 
+               data = training) 
+summary(multipleBest) # Adjusted R-squared:  0.586
+cor(predict(multipleBest, newdata = testing), testing$Price)^2 # 0.6151373
+```
+
+Despite having a lower theoretical R-squared = 0.586, in practice at the
+moment of predicting we went from 0.44 to 0.615. Now we can fairly say
+that this model is actually good for predicting the price in comparison
+to the single regression model.
+
+### 3.1.3 Model Selection
+
+In case we could improve our model, the best way to see it now is by
+using a more automatically way by inspecting the different combinations.
+There are several ways to automatise this part, either using the library
+*leaps* or *olsrr.* In this case, we will use the library *olsrr*, we
+could select the best model by looking at all possible, the best of
+subsets, stepping forward, backward and for AIC. The method that got us
+the best results was *old_step_best_subset()*.
+
+(For the sake of clarity and understanding the project, we will not
+include all the selecting methods, just the one that got us the best
+results).
+
+```{r}
+library(olsrr)
+
+model = Price ~ Internal.storage..GB.* RAM..MB. + Resolution.y *
+                 Resolution.x + Front.camera +
+                 Brand * Operating.system
+fittness = lm(model, data = training)
+
+ols_step_best_subset(fittness)
+plot(ols_step_best_subset(fittness))
+```
+
+It tells us that the best model in all terms, complexity and R-squared
+is the 7 by just a little bit. Let's see:
+
+```{r}
+# RAM..MB. Resolution.x Front.camera Operating.system Internal.storage..GB.:RAM..MB. Resolution.y:Resolution.x Brand:Operating.system
+
+multipleGoat = lm(Price ~ Internal.storage..GB. * RAM..MB. + Front.camera +
+                  Resolution.y * Resolution.x + Brand * Operating.system, 
+               data = training) 
+summary(multipleGoat) # Adjusted R-squared:  0.586
+cor(predict(multipleGoat, newdata = testing), testing$Price)^2 # 0.6151373
+```
+
+We see, that in fact was the multiple model that we suggested. From the
+plot below we see an overall improvement.
+
+```{r}
+par(mfrow=c(2,2))
+plot(multipleGoat, pch = 23 ,bg='mediumpurple3', cex = 2)
+```
+
+## 3.2 Other regression models
+
+Now we are going to continue with other statistical learning regression
+models. First we prepare the model we have selected
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, repeats = 1)
+
+model = Price ~ Internal.storage..GB.* RAM..MB. + Resolution.y *
+                 Resolution.x + Front.camera +
+                 Brand * Operating.system
+
+linFit <- lm(model,
+             data=training)
+
+#summary(linFit)
+
+# to save all the predictors obtained:
+test_results <- data.frame(price = testing$Price)
+```
+
+### 3.2.1 Overfitted Linear Regression
+
+```{r}
+alm_tune <- train(model, data = training, 
+                  method = "lm", 
+                  preProc=c('scale', 'center'),
+                  trControl = ctrl)
+
+test_results$alm <- predict(alm_tune, testing)
+postResample(pred = test_results$alm,  obs = test_results$price)
+```
+
+Not a bad prediction but using it could be risky due to the excessive
+fitness to the training.
+
+```{r}
+qplot(test_results$alm, test_results$price) + 
+  labs(title="Linear Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+```
+
+### 3.2.2 Forward Regression
+
+```{r}
+for_tune <- train(model, data = training, 
+                  method = "leapForward", 
+                  preProc=c('scale', 'center'),
+                  tuneGrid = expand.grid(nvmax = 4:10),
+                  trControl = ctrl)
+
+for_tune
+plot(for_tune)
+```
+
+We can see that 5 or 6 Predictors obtained the lowest RMSE, so we will
+use 5 for our prediction.
+
+```{r}
+coef(for_tune$finalModel, for_tune$bestTune$nvmax)
+
+# We use those variables for our prediction
+test_results$frw <- predict(for_tune, testing)
+postResample(pred = test_results$frw,  obs = test_results$price)
+
+qplot(test_results$frw, test_results$price) + 
+  labs(title="Forward Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+```
+
+But we see [worse prediction results]{.underline}.
+
+### 3.2.3 Backward Regression
+
+```{r}
+back_tune <- train(model, data = training, 
+                   method = "leapBackward", 
+                   preProc=c('scale', 'center'),
+                   tuneGrid = expand.grid(nvmax = 4:10),
+                   trControl = ctrl)
+back_tune
+plot(back_tune)
+```
+
+Now we have as optimal nvmax = 6, almost 7 as before. We see again, that
+**models with a large amount of variables are helping us to predict
+better the price**.
+
+```{r}
+coef(back_tune$finalModel, back_tune$bestTune$nvmax)
+
+test_results$bw <- predict(back_tune, testing)
+postResample(pred = test_results$bw,  obs = test_results$price)
+
+qplot(test_results$bw, test_results$price) + 
+  labs(title="Backward Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+```
+
+We see an [improvement]{.underline} from our last best, now the
+R-squared is 0.618. Now this our **best model**, so far.
+
+### 3.2.4 Stepwise Regression
+
+```{r}
+step_tune <- train(model, data = training, 
+                   method = "leapSeq", 
+                   preProc=c('scale', 'center'),
+                   tuneGrid = expand.grid(nvmax = 4:10),
+                   trControl = ctrl)
+plot(step_tune)
+
+# which variables are selected?
+coef(step_tune$finalModel, step_tune$bestTune$nvmax)
+
+test_results$seq <- predict(step_tune, testing)
+postResample(pred = test_results$seq,  obs = test_results$price)
+
+qplot(test_results$seq, test_results$price) + 
+  labs(title="Backward Regression Observed VS Predicted", x="Predicted", y="Observed") +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  theme_bw()
+```
+
+[Worse results]{.underline}.
+
+### 3.2.5 Ridge Regression
+
+Using **glmnet** we get:
+
+```{r}
+# X matrix
+X = model.matrix(model, data=training)
+
+# y variable
+y = training$Price
+
+grid = seq(0, .1, length = 100)  # a 100-size grid for lambda (rho in slides)
+ridge.mod = glmnet(X, y, alpha=0, lambda=grid)  # alpha=0 for ridge regression
+
+#dim(coef(ridge.mod))
+#coef(ridge.mod)
+
+plot(ridge.mod, xvar="lambda")
+
+ridge.cv = cv.glmnet(X, y, type.measure="mse", alpha=0)
+plot(ridge.cv)
+
+opt.lambda <- ridge.cv$lambda.min
+opt.lambda # 8.96
+
+
+lambda.index <- which(ridge.cv$lambda == ridge.cv$lambda.1se)
+beta.ridge <- ridge.cv$glmnet.fit$beta[, lambda.index]
+#beta.ridge
+```
+
+And the prediction obtained is
+
+```{r}
+X.test = model.matrix(model, data=testing)
+
+ridge.pred = predict(ridge.cv$glmnet.fit, s=opt.lambda, newx=X.test)
+
+y.test = testing$Price
+
+postResample(pred = ridge.pred,  obs = y.test)
+```
+
+The R-squared obtained is almost 60% and the RMSE is 132. These values
+tell us that this prediction is not very good.
+
+Therefore, we will try now using **caret**
+
+```{r}
+ridge_grid <- expand.grid(lambda = seq(0, .1, length = 100))
+
+ridge_tune <- train(model, data = training,
+                    method='ridge',
+                    preProc=c('scale','center'),
+                    tuneGrid = ridge_grid,
+                    trControl=ctrl)
+plot(ridge_tune) 
+```
+
+With this curve we can see that the optimal lambda is around 0.5.
+
+```{r}
+# the best tune
+ridge_tune$bestTune
+
+# prediction
+test_results$ridge <- predict(ridge_tune, testing)
+
+postResample(pred = test_results$ridge,  obs = test_results$price)
+```
+
+The results obtained are nearly the same than the glmnet ones.
+
+### 3.2.6 The Lasso
+
+```{r}
+lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
+
+lasso_tune <- train(model, data = training,
+                    method='lasso',
+                    preProc=c('scale','center'),
+                    tuneGrid = lasso_grid,
+                    trControl=ctrl)
+plot(lasso_tune)
+
+lasso_tune$bestTune
+
+test_results$lasso <- predict(lasso_tune, testing)
+postResample(pred = test_results$lasso,  obs = test_results$price)
+```
+
+Again, the R-squared is 60% and 129 RMSE.
+
+### 3.2.7 Elastic Net
+
+```{r}
+elastic_grid = expand.grid(alpha = seq(0, .2, 0.01), lambda = seq(0, .1, 0.01))
+
+glmnet_tune <- train(model, data = training,
+                     method='glmnet',
+                     preProc=c('scale','center'),
+                     tuneGrid = elastic_grid,
+                     trControl=ctrl)
+
+plot(glmnet_tune)
+glmnet_tune$bestTune
+
+test_results$glmnet <- predict(glmnet_tune, testing)
+
+postResample(pred = test_results$glmnet,  obs = test_results$price)
+```
+
+No improvement in the prediction.
+
+## 3.3 Machine Learning Tools
+
+Now, we will try machine learning models to see if we can improve our
+last best model (**Backward Regression with R-squared = 0.618**).
+
+### 3.3.1 kNN
+
+```{r}
+knn_tune <- train(model, 
+                  data = training,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneGrid = data.frame(kmax=c(11,13,15,19,21),
+                                        distance=2 ,
+                                        kernel='optimal'),
+                  trControl = ctrl)
+plot(knn_tune)
+
+test_results$knn <- predict(knn_tune, testing)
+
+postResample(pred = test_results$knn,  obs = test_results$price)
+```
+
+Worse that the statistical learning ones (R-squared = 0.58 and RMSE =
+135).
+
+### 3.3.2 Random Forest
+
+```{r}
+rf_tune <- train(model, 
+                 data = training,
+                 method = "rf",
+                 preProc=c('scale','center'),
+                 trControl = ctrl,
+                 ntree = 100,
+                 tuneGrid = data.frame(mtry=c(1,3,5,7)),
+                 importance = TRUE)
+
+plot(rf_tune)
+
+test_results$rf <- predict(rf_tune, testing)
+
+postResample(pred = test_results$rf,  obs = test_results$price)
+```
+
+No improvement, the R-squared is 0.59 and the RMSE is 132.
+
+### 3.3.3 Gradient Boosting
+
+```{r}
+xgb_tune <- train(model, 
+                  data = training,
+                  method = "xgbTree",
+                  preProc=c('scale','center'),
+                  objective="reg:squarederror",
+                  trControl = ctrl,
+                  tuneGrid = expand.grid(nrounds = c(500,1000), 
+                                         max_depth = c(5,6,7), 
+                                         eta = c(0.01, 0.1, 1),
+                                         gamma = c(1, 2, 3), 
+                                         colsample_bytree = c(1, 2),
+                                         min_child_weight = c(1), 
+                                         subsample = c(0.2,0.5,0.8)))
+```
+
+```{r}
+test_results$xgb <- predict(xgb_tune, testing)
+
+postResample(pred = test_results$xgb,  obs = test_results$price)
+```
+
+The R-squared obtained is 62% and the RMSE is 127. This is the best
+regression model but very time-consuming.
+
+## 3.4 Ensemble and Final Prediction
+
+```{r}
+apply(test_results[-1], 2, function(x) mean(abs(x - test_results$price)))
+```
+
+```{r}
+# Combination
+test_results$comb = (test_results$xgb + test_results$bw)/2
+
+postResample(pred = test_results$comb,  obs = test_results$price)
+```
+
+We obtained the best best model by combining the overfitted, the knn and
+the random forest models. In this way we obtained the best outcome yet,
+which is:
+
+-   RMSE of 127
+
+-   R-squared = 0.656
+
+-   MAE = 54
+
+Therefore, for the final prediction we are going to use the ensembled
+regression.
+
+```{r}
+yhat = test_results$comb
+
+head(yhat)
+
+hist(yhat, col="lightblue")
+```
+
+### 3.4.1 Prediction Intervals
+
+```{r}
+y = test_results$price
+error = y-yhat
+hist(error, col="lightblue")
+
+noise = error[1:100]
+
+# 90% confidence
+lwr = yhat[101:length(yhat)] + quantile(noise,0.05, na.rm=T)
+upr = yhat[101:length(yhat)] + quantile(noise,0.95, na.rm=T)
+
+predictions = data.frame(real=y[101:length(y)],
+                         fit=yhat[101:length(yhat)],
+                         lwr=lwr,
+                         upr=upr)
+
+predictions = predictions %>% mutate(out=factor(if_else(real<lwr | real>upr,1,0)))
+
+# how many real observations are out of the intervals?
+mean(predictions$out==1)
+```
+
+```{r}
+ggplot(predictions, aes(x=fit, y=real))+
+  geom_point(aes(color=out)) + theme(legend.position="none") +
+  geom_ribbon(data=predictions,aes(ymin=lwr,ymax=upr),alpha=0.3) +
+  labs(title = "Prediction intervals", x = "prediction",y="real price")
+
+```
+
+We can see that only a 5% of the predictions are far away from the
+original value. This means that the regression model works fine.
+
+## 3.5. Conclusion
+
+We saw a good behaviour of models with 6 or 7 variables, which makes
+sense, as there were around 2 or 3 pairs of variables that were
+fundamental in describing the price.
+
+In the end, we saw that the best was to use a combination of:
+
+-   A sequential model, Gradient boosting, as it improves model after
+    model. This machine learning method is prone to be affected by
+    overfitting. But thanks to the featuring engineering, not only it
+    did not give us problems but it improved the overall model.
+
+-   Backwards regression, this method depended more on our understanding
+    of the variables and the concepts behind smartphone's pricing. We
+    saw a few pair of variables that helped us create a model almost as
+    good as machine learning model.
+
+To sum up, combining both statistical and machine learning procedures,
+along with a proper handling of the data, made us build a model that
+almost 70% of the time is going to predict right the price of the
+smartphone.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

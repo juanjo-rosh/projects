@@ -1,0 +1,427 @@
+# Assignment 1
+
+# Exploratory Data Analysis of the Titanic
+
+*Alejandro Barroso and Juan José Rosales*
+
+``` r
+```
+
+---
+title: "MarkdownTitanic"
+author: "Alejandro and Juanjo"
+date: "2022-10-22"
+output:
+  word_document: 
+    toc: yes
+  html_document: default
+  pdf_document: default
+---
+
+## Getting the data:
+
+First of all, we are going to upload the data frame titanic_train and prepare the ggplot library.
+
+```{r}
+
+load("C:/YO/Mis cosas/Educación/UC3M/1Cuatri/Introducción ciencia de datos/Assigment1/titanic_train.Rdata")
+library(ggplot2)
+#We change the name of the data frame for a efficient usage:
+data = titanic.train
+titanic.train = NULL
+```
+
+## Data Exploration/Analysis
+
+```{r}
+head(data, 10)
+```
+
+We can see that the number of rows is not correct.
+
+```{r}
+dim(data)
+summary(data$Age)
+summary(data$SibSp)
+summary(data$Parch)
+summary(data$Fare)
+table(data$Survived)
+table(data$Pclass)
+table(data$Sex)
+# The variable Cabin needs a way to see its values in a more efficient way, which will be done later.
+table(data$Cabin)
+table(data$Embarked)
+```
+
+## Main characteristic of each variable:
+
+### Categorical variables:
+
+#### **Survived:**
+
+```{r}
+table(data$Survived)
+round(prop.table(table(data$Survived)),digits =2)
+ggplot(data, aes(x = Survived)) +
+  geom_bar(width=0.5,fill = c("firebrick","limegreen")) +
+  geom_text(stat='Count', aes(label=stat(count)), vjust=-0.5) +
+  theme_classic()
+```
+
+We can see with these table that almost 2/3 of the passengers die in the shipwreck.
+
+#### **Sex:**
+
+```{r}
+# Table for Sex
+table(data$Sex)
+# Relative frequency rounded to two digits for a efficient usage
+round(prop.table(table(data$Sex)),digits =2)
+# Plot of the data to visualice it and draw conclusions
+ggplot(data, aes(x = Sex,fill=Sex)) +
+  geom_bar(width=0.5) +
+  geom_text(stat='Count', aes(label=stat(count)), vjust=-0.5) +
+  theme_classic()
+```
+
+A lot of the passengers were male almost the double as female passengers, exactly 2/3
+
+#### **PClass:**
+
+```{r}
+#We change the levels of PClass to make it easier to visualize
+data$Pclass = factor(data$Pclass, labels = c("1st Class", "2nd Class", "3rd Class"))
+
+table(data$Pclass)
+prop.table(table(data$Pclass))
+# Plot of the data to visualice it and draw conclusions
+ggplot(data, aes(x = Pclass,fill=Pclass)) +
+  geom_bar(width=0.5) +
+  geom_text(stat='Count', aes(label=stat(count)), vjust=-0.5) +
+  theme_classic()
+```
+
+We can see that half of the passengers were in third class and the other half were divided between first and second class.
+
+#### **Embarked:**
+
+The factor variable has an empty level, so we fix it.
+
+```{r}
+data$Embarked = factor(data$Embarked,levels = c("C","Q","S"))
+```
+
+```{r}
+#We change the levels to make it easier to visualize
+data$Embarked = factor(data$Embarked, labels = c("Cherbourg", "Queenstown", "Southampton"))
+table(data$Embarked)
+prop.table(table(data$Embarked))
+ggplot(data, aes(x = Embarked,fill=Embarked)) +
+  geom_bar(width=0.5) +
+  geom_text(stat='Count', aes(label=stat(count)), vjust=-0.5)
+```
+
+We can see that almost all of the passengers had embarked in the port S and much less in C and Q
+
+#### **Cabin:**
+
+Cabin has a lot of levels so we are going to visualize it with a plot
+
+```{r}
+# We create a new variable called Room which divide the cabin data in two,
+# the people with cabin and the people without
+aux = which(data$Cabin != "")
+data$Room = rep("No",length(data$Cabin))
+data$Room[aux] = "Yes" 
+data$Room = factor(data$Room)
+prop.table(table(data$Room, data$Survived),1)
+
+ggplot(data, aes(x = Room, fill=Room)) +
+  geom_bar(width=0.5) +
+  geom_text(stat='Count', aes(label=stat(count)), vjust=-0.5)+
+theme(text = element_text(size = 15))
+```
+
+We can clearly see that most of the people didn't have a Cabin, we will study whether this affected or not to the survival rate and if the sector of the cabin did also affect the survival rate.
+
+#### Ticket:
+
+In this case the tickets are a categorical variable, so we have a big amount of levels.
+
+```{r}
+ggplot(data)+
+  geom_bar(aes(x = Ticket))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6))+
+theme(text = element_text(size = 15))
+```
+
+Almost everyone has their own ticket, but it some cases different passengers have the same ticket, we will study this relation. Moreover, there are some tickets that include letters, we will check if tickets with some letters are related or not.
+
+```{r}
+#Extract letter from ticket.
+```
+
+### Numerical variables:
+
+#### SibSp and Parch:
+
+Combining SibSP and Parch we can get the number of relative in the ship of each passenger.
+
+We are going to convert these variables into factors for a efficient usage.
+
+We are going to combain both variables in a bivariate table using the scatterplot
+
+```{r}
+data$SibSp = factor(data$SibSp)
+data$Parch = factor(data$Parch)
+ftable(table(data$SibSp,data$Parch))
+p = ggplot(data = data, aes(x = SibSp, y = Parch)) +
+      geom_count() + scale_size_continuous(range = c(5, 15))
+p + geom_text(data = ggplot_build(p)$data[[1]], 
+              aes(x, y, label = n), color = "#ffffff")
+
+```
+
+The usual was travel alone. However, we can see that there were some families traveling all together
+
+#### **Age:**
+
+```{r}
+summary(data$Age)
+ggplot(data)+
+  geom_density(aes(x=Age),fill="coral") +
+  geom_boxplot(aes(x=Age), width = 0.01, alpha = 0.2)
+  
+```
+
+We can see that the age variable goes from 4 months to 74 years. From the graph we can extract that a lot of the passengers were between 20-30, specifically 28 years old was the most common age.
+
+#### **Fare:**
+
+```{r}
+summary(data$Fare)
+ggplot(data)+
+  geom_boxplot(aes(x=Fare))+
+theme(text = element_text(size = 15))
+```
+
+The min fare was 0 and the maximum 512. We can suppose that there may be outliers because they are really far away from the third quartile multiply by the IQR. The median that it is not affect by outliers is around 15 .
+
+## QUESTIONS:
+
+### 1. Did the passengers have a better chance of surviving depending on their age or sex?
+
+#### Age:
+
+We can easily create a plot to see the survival ratio related to age. First to make it clear we are going to split the age variable in intervals.
+
+```{r}
+#New variable with the varible age split in intervals
+# Discretize age to plot survival
+data$DiscretizedAge = cut(data$Age, c(0,12,18,30,40,50,60,70,80,100))
+```
+
+Now we create the plot with ggplot:
+
+```{r}
+ggplot(data)+
+  aes(y=DiscretizedAge)+
+  geom_bar(aes(fill=Survived),position="fill")+
+  scale_fill_manual(labels=c("No","Yes"),values = c("firebrick","limegreen"))+
+  scale_x_continuous(labels= scales::percent)+
+  xlab("Percentages")+
+  ylab("Age intervals")+
+  labs(title= "Proportion of survival in each age interval")+
+  theme(legend.justification = "right")+
+theme(text = element_text(size = 15))
+```
+
+**Conclusion:**
+
+We can see that if the passenger was a child, between 0 and 10 years old was more likely to survive. This can be related with the number of siblings and parents if they tried to save first their kids. On the other hand we have that the less survival rate is between 20-30 years old. All the passengers over 70 died, this can be because they were a small group.
+
+#### Sex:
+
+```{r}
+#Survival histogram-density
+ggplot(data)+
+  geom_bar(aes(x=DiscretizedAge,fill=Survived), position ="fill") +
+  scale_fill_manual(labels=c("Not Survived","Survived"),
+                    values=c("firebrick", "limegreen"))+
+  scale_y_continuous(labels= scales::percent)+
+  ylab("Percentages")+
+  theme(axis.text.x = element_text(angle = 30, hjust = 1))+
+  facet_wrap(~Sex)
+
+#Survival histogram-density
+ggplot(data)+
+  geom_histogram( aes(x=Age,
+                      fill=Survived), 
+                  binwidth = 5, 
+                  alpha=0.4, 
+                  position = 'identity' ) +
+  scale_fill_manual(labels=c("Not Survived","Survived"),
+                    values=c("firebrick", "limegreen")) +
+  facet_wrap(~Sex)+
+  theme(legend.position = "bottom",
+        legend.justification = "right")+
+theme(text = element_text(size = 15))
+```
+
+**Conclusion:**
+
+With these two plots we can conclude some things:
+
+-   75% of female passengers survived vs a little bit less than 20% of male passengers
+
+-   Children until 10 has almost the same survival rate in both sexes
+
+-   Women at all ages survived more compare to men
+
+-   No women between 60-70 died, but all men older than 60 died
+
+-   Speaking about proportions women children between 0-10 survived less than any other age interval
+
+-   Women between 40-50 died more than the usual in its category
+
+-   In the histogram, both graphs has a really similar shape
+
+#### Final Conclusions:
+
+We con confirm our theory, there is a relation between sex, age and survival. Probably in the shipwreck they follow the universal rule of kids, women and old people first.
+
+### 2. Did the price of the ticket have any relationship with the survival rate of the passengers?
+
+We can see that most of the values are concentrated in the left of the graph. As we said before, we can find outliers in this category.
+
+Let's try to find a way to make it easier to plot and visualize the fare variable.
+
+We are going to create intervals from the fare variable
+
+```{r}
+#New variable with the varible fare split in intervals
+# Discretize fare to plot combined with survival
+#Add 0.1 to 
+data$DiscretizedFare = cut(data$Fare, c(-0.1,10,30,50,70,80,90,550))
+```
+
+```{r}
+
+ggplot(data)+
+  geom_bar(stat ="count",aes(x=DiscretizedFare,fill=Survived),position ="fill") +
+  scale_fill_manual(labels=c("Not Survived","Survived"),
+                    values=c("firebrick", "limegreen"))+
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+  xlab("Fare")
+
+#Let's create a data frame to plot the information in a donut plot:
+vector = c()
+vector2 = c()
+for (i in levels(data$DiscretizedFare)){
+  vector = c(vector,i)
+  vector2 = c(vector2,length(which(data$DiscretizedFare == i)))
+}
+donut = data.frame(Fares = as.factor(vector), num_people = vector2)
+hsize = 2
+ggplot(donut, aes(x = hsize, y = num_people, fill = Fares)) +
+  geom_col(position = position_stack(reverse = TRUE)) +
+  coord_polar(theta = "y") +
+  xlim(c(0.2, hsize + 0.5))+
+  geom_label(aes(label = num_people),
+             position = position_stack(reverse =TRUE,vjust = 0.5),
+             show.legend = FALSE) +
+  xlab("") +
+  ylab("") + 
+  scale_alpha(guide = 'none') + 
+  labs(title = "Passengers who paid the fare in the different intervals")
+```
+
+```{r}
+#We eliminate outliers to see better the density plot
+data$Fare[data$Fare > 250] = 15
+auxSurvived = which(data$Survived == 1)
+AuxNotSurvived= which(data$Survived == 0)
+ggplot(data[auxSurvived,]) + aes(x = Fare)+ geom_histogram(bins=30, aes(y=..density..),
+color="black", fill="limegreen") + geom_histogram(bins=30,data=data[AuxNotSurvived,],aes(y = - ..density..),
+colour="black",fill= "firebrick") +ylab("NOTSurvived---Survived")
+
+```
+
+We can see that the survival rate increase in the relative frequency when we move to the left of the plot.
+
+### 3.Is having a cabin related to the class of the person and the embarkation place?
+
+First we need to create a new variable that differentiates between the people with cabin and the ones without
+
+```{r}
+aux = which(data$Cabin != "") 
+data$Room = rep("No Cabin",length(data$Cabin)) 
+data$Room[aux] = "Cabin" 
+data$Room = factor(data$Room)
+
+
+ggplot(data) + 
+  aes(x = Embarked, fill = Pclass, alpha = 0.9) + 
+  geom_bar(position = "dodge") + 
+  scale_fill_manual(values = c("deepskyblue4","darkgoldenrod", "brown")) + 
+  geom_text(stat="count", 
+            aes(label=stat(count)),
+            vjust = -0.5, 
+            position = position_dodge(.9)) + 
+  facet_grid(~Room) + 
+  xlab("Port of embarkation") +
+  ylab("Number of passengers") + 
+  scale_alpha(guide = 'none') + 
+  labs(title = "Relationship between embarkation, class and cabin")
+```
+
+#### 4. How does the age and the class of a person affected to its chances of surviving?
+
+First we need to change the labels for the Pclass variable to make it more understandable in the plot
+
+Violin-boxplot - Relationship between the age, class and survival
+
+```{r}
+
+ggplot(data = data) +
+  aes(x=Survived, y=Age, fill=Survived, alpha = 0.6)+
+  scale_fill_manual(labels= c("Not Survived", "Survived"), values = c("firebrick","limegreen")) +
+  geom_violin()+
+  geom_boxplot(width=0.5, color="black", alpha=0.2) +
+  geom_jitter(color = "blue", alpha = 0.1) +
+  facet_grid(.~Pclass)+
+  theme(legend.position = "none") +
+  xlab("SURVIVAL") +
+  ylab("AGE") +
+  labs(title = "RELATIONSHIP BETWEEN AGE, CLASS AND SURVIVAL")
+```
+
+#### 5. How does travelling alone affects each interval of age in their survival?
+
+```{r}
+aux = data$Parch == 0 & data$SibSp == 0
+sum(aux)
+travels_alone = rep("Not Alone",length(aux))
+travels_alone[aux] = "Alone"
+data$travels_alone = travels_alone
+data$travels_alone = factor(data$travels_alone)
+children = which(data$Age < 18)
+adults = which(data$Age >= 18 & data$Age < 60)
+seniors = which(data$Age >= 60)
+stages = rep("children", length(data$Age))
+stages[adults] = "adult"
+stages[seniors] = "senior"
+data$stages = stages
+data$stages = factor(data$stages, levels = c("children", "adult", "senior"))
+
+
+ggplot(data=data) +
+  aes(y = stages) +
+  geom_bar(aes(fill = Survived),position = "fill") +
+  facet_grid(travels_alone~.) +
+  scale_fill_manual(labels= c("Not Survived", "Survived"), values = c("firebrick4","forestgreen")) +
+  scale_x_continuous(labels= scales::percent) +
+  xlab("Percentages") +
+  ylab("Ages Stages") +
+  labs(title="Proportion of survival being accompanied in each stage")
+```

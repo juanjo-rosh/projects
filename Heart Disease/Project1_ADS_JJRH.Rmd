@@ -1,0 +1,2052 @@
+---
+title: 'Project 1: Statistical Learning'
+author: "Agustín Dorado Sánchez & Juan José Rosales Hernando"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: 72
+  chunk_output_type: console
+---
+
+**Column Descriptions**:
+
+id: (Unique id for each patient)
+
+age: (Age of the patient in years)
+
+origin: (place of study)
+
+sex: (Male/Female)
+
+cp: chest pain type ([typical angina, atypical angina, non-anginal,
+asymptomatic])
+
+trestbps: resting blood pressure (resting blood pressure (in mm Hg on
+admission to the hospital))
+
+chol: (serum cholesterol in mg/dl)
+
+fbs: (if fasting blood sugar \> 120 mg/dl)
+
+restecg: (resting electrocardiographic results) -- Values: [normal, stt
+abnormality, lv hypertrophy]
+
+thalach: maximum heart rate achieved
+
+exang: exercise-induced angina (True/ False)
+
+oldpeak: ST depression induced by exercise relative to rest
+
+slope: the slope of the peak exercise ST segment
+
+ca: number of major vessels (0-3) colored by fluoroscopy
+
+thal: [normal; fixed defect; reversible defect]
+
+num: the predicted attribute
+
+**Data Creators:** Hungarian Institute of Cardiology. Budapest: Andras
+Janosi, M.D. University Hospital, Zurich, Switzerland: William
+Steinbrunn, M.D. University Hospital, Basel, Switzerland: Matthias
+Pfisterer, M.D. V.A. Medical Center, Long Beach and Cleveland Clinic
+Foundation: Robert Detrano, M.D., Ph.D. Relevant Papers: Detrano, R.,
+Janosi, A., Steinbrunn, W., Pfisterer, M., Schmid, J., Sandhu, S.,
+Guppy, K., Lee, S., & Froelicher, V. (1989). International application
+of a new probability algorithm for the diagnosis of coronary artery
+disease. American Journal of Cardiology, 64,304--310. Web Link David W.
+Aha & Dennis Kibler. "Instance-based prediction of heart-disease
+presence with the Cleveland database." Web Link Gennari, J.H., Langley,
+P, & Fisher, D. (1989). Models of incremental concept formation.
+Artificial Intelligence, 40, 11--61. Web Link
+
+**Citation Request:** The authors of the databases have requested that
+any publications resulting from the use of the data include the names of
+the principal investigator responsible for the data collection at each
+institution. They would be:
+
+Hungarian Institute of Cardiology. Budapest: Andras Janosi, M.D.
+University Hospital, Zurich, Switzerland: William Steinbrunn, M.D.
+University Hospital, Basel, Switzerland: Matthias Pfisterer, M.D. V.A.
+Medical Center, Long Beach and Cleveland Clinic Foundation:Robert
+Detrano, M.D., Ph.D.
+
+**Libraries used:**
+
+```{r include=FALSE}
+library(tidyverse)  # from Lab 1
+library(leaflet)    # from Lab 1
+library(sf)         # from Lab 1
+library(readxl)     # from Lab 1
+library(stringr)    # from Lab 1
+library(dplyr)      # from Lab 1
+library(mice)       # from Lab 1
+library(GGally)     # ggplot2-based visualization of correlations
+library(factoextra) # ggplot2-based visualization
+library(cluster)    # clustering
+library(mclust)     # clustering
+```
+
+## 1. Preprocessing (Feature Engineering)
+
+Let's load the data set
+
+```{r include=FALSE}
+rm(list = ls())
+set.seed(123) # consistency in results
+# Load the data set
+heart = read.csv("heart_disease_uci.csv")
+```
+
+First we will change some variable names in order to facilitate the
+project's understanding.
+
+```{r include=FALSE}
+colnames(heart) = c("id", "age", "sex", "dataset", "chest_pain", "rest_blood_pressure", "chol", "blood_sugar", "restecg", "max_heart_rate", "exang", "oldpeak", "slope", "ca", "thal", "stage")
+```
+
+So now our variables will be studied as:
+
+-   *id* -\> **int**; Unique id for each patient.
+
+-   *age* -\> **int**; Age of the patient in years.
+
+-   *sex* -\> **chr**; "Male" or "Female".
+
+-   *dataset* -\> **chr**; place of study ("Cleveland", "Hungary",
+    "Switzerland" and "VA Long Beach").
+
+-   *chest_pain* -\> **chr**; chest pain type (["typical angina",
+    "atypical angina", "non-anginal", asymptomatic"]).
+
+-   *rest_blood_pressure* -\> **int**; resting blood pressure (in mm Hg
+    on admission to the hospital).
+
+-   *chol* -\> **int**; serum cholesterol in mg/dl.
+
+-   *blood_sugar* -\> **lgl**; if fasting blood sugar \> 120 mg/dl (True
+    or False).
+
+-   *restecg* -\> **chr**; resting electrocardiographic results
+    ["normal", "stt abnormality", "lv hypertrophy"].
+
+-   *max_heart_rate -\>* **int**; maximum heart rate achieved.
+
+-   *exang* -\> **lgl**; exercise-induced angina (True or False).
+
+-   *oldpeak* -\> **dbl**; ST depression induced by exercise relative to
+    rest.
+
+-   *slope* -\> **chr**; the slope of the peak exercise ST segment
+    ("downsloping", "flat" and "upsloping").
+
+-   *ca* -\> **int**; number of major vessels (0-3) colored by
+    fluoroscopy.
+
+-   *thal* -\> **chr**; ["normal"; "fixed defect" and "reversible
+    defect"].
+
+-   *stage* -\> **int**; the predicted attribute
+
+```{r}
+summary(heart)
+```
+
+By taking a first look at the summary of the data set and analysing it
+deeply, we get some first conclusions on where to head our Preprocessing
+of the data:
+
+-   **NA values**, especially in *ca* (611); *rest_blood_pressure, chol,
+    blood_sugar, max_heart_rate, exang, oldpeak* also have missing
+    values in a much lower quantity. Based on this difference of NAs the
+    way of handling, must be thought thorough, and may be differently
+    depending on the variable, row...
+
+-   The **variables** *id* and *dataset* do **not** give **relevant**
+    information. We believe that the number id does not give a big
+    relevance to identify if a patient suffers or not a heart disease.
+
+-   Before deleting the variable *id* we must look for **duplicated
+    values**, in this case a duplicated value for an id number would
+    give us an observation to get rid off. So before deleting it, we
+    will check it.
+
+-   **Encoding**, There are a considerable amount of character variables
+    that must be changed into factors so we can get better results and
+    handle better the data (*sex*, *chest_pain*, *restecg*, *slope* and
+    *thal*). We will have to take into consideration the labels and
+    levels.
+
+-   **Outliers**, by looking at the numerical variables and their
+    minimum, maximum and quantile ranges. We appreciate the reckon of a
+    deep study on those values.
+
+-   In order to facilitate comparisons between different variables and
+    for the following subjects of matter of this Project it might be a
+    good idea to **normalize** and **standarise** numerical variables.
+
+These main ideas came from a look at the data set information, summary
+and understanding of the data. Nevertheless, more feature engineering
+strategies may appear while **visualizing the data**.
+
+So from this first conclusion we get two main problems, handling the
+importance of the variables (*which variables to delete*); the *type and
+values of the variables* (factorise); and outstanding values such as
+*NAs and outliers*.
+
+Let's start taking care of **duplicated variables** and **non-relevant
+variables**:
+
+```{r}
+heart$id[duplicated(heart$id)]
+# We see that there are no duplicated rows (no repeated people)
+
+# Now, let's look at the variables to delete
+# heart2 = heart %>% select(- id)            # second assumption
+heart = heart %>% select(- id, - dataset)  # main assumption
+glimpse(heart)
+# glimpse(heart2)
+```
+
+### **1.1 Encoding**
+
+We will factorise the variables that are characters. As PCA and Factor
+Analysis are numerical techniques, we will not use strings as labels for
+the categorical variables. Therefore, for a better comprehension of the
+Project, we will state here the corresponding of each factor number to
+its actual string value. Logical features will not be factorised as they
+are handled as ones or zeroes when applying PCA and Factor Analysis
+techniques.
+
+```{r include=FALSE}
+heart$sex = factor(heart$sex, levels = c("Male", "Female"),
+                      labels = c(0, 1))
+heart$chest_pain = factor(heart$chest_pain,
+                          levels = c("asymptomatic",
+                                     "typical angina",
+                                     "atypical angina",
+                                     "non-anginal"),
+                          labels = c(0, 1, 2, 3))
+heart$restecg = factor(heart$restecg, 
+                       levels = c("normal", "stt abnormality",
+                                  "lv hypertrophy"),
+                       labels = c(0, 1, 2))
+heart$slope = factor(heart$slope, 
+                     levels = c("downsloping", "flat", "upsloping"),
+                     labels = c(0, 1, 2))
+heart$thal = factor(heart$thal,
+                    levels = c("normal", "fixed defect", 
+                               "reversible effect"),
+                    labels = c(0, 1, 2))
+
+# We also factorise the variable stage with 5 labels, as it makes more sense 
+# (As it will take integer values, there is no need to specify the labels)
+# and the variable ca
+heart$stage = as.factor(heart$stage)
+heart$ca = as.factor(heart$stage)
+```
+
+```{r}
+glimpse(heart)
+```
+
+After this, our final working features will be defined as:
+
+-   *age* -\> **int**; Age of the patient in years.
+
+-   *sex* -\> **fct**; "Male" or "Female" -\> (0, 1)
+
+-   *chest_pain* -\> **fct**; chest pain type (["typical angina",
+    "atypical angina", "non-anginal", "asymptomatic"]) -\> (0, 1, 2, 3)
+
+    -   "typical angina" = 0 -\> type of chest pain that goes away when
+        resting.
+
+    -   "atypical angina" = 1 -\> type of chest pain that does not fit
+        the typical pattern of angina.
+
+    -   "non-anginal" = 2 -\> type of chest pain unrelated to heart
+        conditions.
+
+    -   "asymptomatic" = 3 -\> absence of chest pain or discomfort.
+
+-   *rest_blood_pressure* -\> **int**; resting blood pressure (in mm Hg
+    on admission to the hospital).
+
+    -   Between 90 and 120 mm Hg is a normal value, above and below it
+        is not. (This feature will be taken care of in the [outlier's
+        section]{.underline}).
+
+-   *chol* -\> **int**; serum cholesterol in mg/dl.
+
+    -   Below 200 mg/dl is an appropiate value, above it is not. (This
+        feature will be taken care of in the [outlier's
+        section]{.underline}).
+
+-   *blood_sugar* -\> **lgl**; if fasting blood sugar \> 120 mg/dl (True
+    or False).
+
+    -   If **True** -\> no possibility of having diabetes.
+
+    -   If **False** -\> there are possibilities of having diabetes.
+
+-   *restecg* -\> **fct**; resting electrocardiographic results
+    ["normal", "stt abnormality", "lv hypertrophy"] -\> (0, 1, 2)
+
+    -   "normal" = 0 -\> electrical activity of the heart is within the
+        expected range.
+
+    -   "stt abnormality" = 1 -\> electrical activity of the heart is
+        showing ST-T abnormalities which can indicate various cardiac
+        conditions.
+
+    -   "lv hypertrophy" = 2 -\> electrical activity of the heart is
+        showing Left Ventricular Hypertrophy which suggests that the
+        left ventricle of the heart is thicker or larger than normal.
+        This can be a sign of various heart conditions or high blood
+        pressure.
+
+-   *max_heart_rate -\>* **int**; maximum heart rate achieved.
+
+    -   Usually related to the group of age. (This feature will be taken
+        care of in the [outlier's section]{.underline}).
+
+-   *exang* -\> **lgl**; exercise-induced angina (True or False).
+
+    -   If **True** -\> individual experienced some type of discomfort
+        during physical activity.
+
+    -   If **False** -\> individual did not experienced any discomfort
+        while exercising.
+
+-   *oldpeak* -\> **dbl**; ST depression induced by exercise relative to
+    rest.
+
+    -   Millimeters of depression of the heart. (This feature will be
+        taken care of in the [outlier's section]{.underline}).
+
+-   *slope* -\> **fct**; the slope of the peak exercise ST segment
+    ("downsloping", "flat" and "upsloping") -\> (0, 1, 2)
+
+    -   "downsloping" = 0 -\> negative slope during peak exercise, can
+        indicate important heart conditions.
+
+    -   "flat" = 1 -\> not showing significant elevation or depression,
+        non-concerning for the patient.
+
+    -   "upsloping" = 2 -\> positive slope during peak exercise, can
+        indicate important heart conditions.
+
+-   *ca* -\> **fct**; number of major vessels (0-3) colored by
+    fluoroscopy -\> (0, 1, 2, 3)
+
+-   *thal* -\> **fct**; ["normal"; "fixed defect" and "reversible
+    defect"] -\> (0, 1, 2)
+
+-   *stage* -\> **fct**; the predicted attribute -\> (0,1, 2, 3, 4).
+
+    -   0 -\> absence of significant heart conditions.
+
+    -   1 -\> early or mild stage of heart conditions, which implies
+        minor heart issues or risk factors.
+
+    -   2 -\> moderate level of heart conditions, this stage suggests
+        that the individual's heart condition is becoming more relevant.
+        Medical intervention may be necessary.
+
+    -   3 -\> more advanced or severe heart conditions, which require
+        medical interventions, treatment or surgery..
+
+    -   4 -\> advanced heart-disease or conditions that may be
+        life-threatening.
+
+### 1.2 NA Values
+
+The following step, handle **NA values**:
+
+```{r}
+barplot(colMeans(is.na(heart)), 
+        names.arg = names(colMeans(is.na(heart))), col = "skyblue",
+        ylab = "Percentage of NAs", 
+        main = "Missing Values in Heart Disease", 
+        cex.names = 0.8, las = 2)
+
+# We see that ca and thal variables have more than 60% of missing values, so we delete those
+heart = heart %>% select(- ca, - thal)
+#summary(heart)
+
+# NAs in rest_blood_preassure; chol; max_heart_rate; and oldpeak seem to be easy to take care of
+# However, in slope and restecg they are still more than a 15%
+# Let's watch out for observations that have a considerable amount of NAs
+amountNAs = rowSums(is.na(heart))
+count_by_na = table(amountNAs)
+percentage_by_na = prop.table(count_by_na) * 100
+for (i in 0:max(amountNAs)) {
+  cat("Percentage of rows with", i, "missing values:",
+      percentage_by_na[i], "%\n")
+}
+percentage_by_na[1] + percentage_by_na[2] + percentage_by_na[3]
+# We see that more than 92% of the data is covered by observations that
+# have less or equal than 3 missing values. Therefore, it might be a
+# good idea to delete those rows with more than 4 NAs.
+
+# However, let's see first if there is a pattern in the NA values
+md.pattern(heart, plot = TRUE, rotate.names = TRUE)
+# From the plot, we see that the pattern in the NA values is that
+# whenever you have more than or exactly 4 missing values
+# The NAs will be in the features rest_blood_preassure, max_heart_rate, exang, oldpeak and slope
+# So, maybe these variables will affect possible statistical models by making the model noisy
+
+# We will eliminate those rows with more than 4 (included) features
+# with missing values
+heart = heart[amountNAs <= 4, ]
+#summary(heart)
+
+# Despite the fact that we got rid of the majority of the missing values
+# without loosing a relevant information, we still have got a
+# considerable amount of NAs in the variable restecg. Let's check again
+md.pattern(heart, plot = TRUE, rotate.names = TRUE)
+
+```
+
+```{r include=FALSE}
+# We notice that the variable restecg is most of the time the one having
+# NAs, so now, we consider two options. Either delete it or just go
+# with the mice imputation method for the NAs. We will use the second one
+imp = mice(heart, method = "rf", m = 5)
+heart = complete(imp)
+```
+
+```{r}
+summary(heart) 
+
+# Even though we chose this, we may consider eliminating those two 
+# 'problematic' variables
+```
+
+### 1.3 Outliers
+
+Our data set to work on now has no NA values, however, the values
+themselves may be incorrect or are not coherent. Hence, treating
+**outliers** is going to be crucial for our study. From the summary of
+the data set, we see that our variables of interest will be: *age*,
+*rest_blood_pressure*, *chol*, *max_heart_rate* and *oldpeak*.
+
+```{r}
+# 3-sigma rule
+mu = mean(heart$age)
+sigma = sd(heart$age)
+sum(heart$age < mu - 3 * sigma | heart$age > mu + 3 * sigma)
+# No 'big' outliers for the age
+
+mu = mean(heart$rest_blood_pressure)
+sigma = sd(heart$rest_blood_pressure)
+sum(heart$rest_blood_pressure < mu - 3 * sigma |
+      heart$rest_blood_pressure > mu + 3 * sigma)
+# 8 'big' outliers for the restblood_preassure
+
+mu = mean(heart$chol)
+sigma = sd(heart$chol)
+sum(heart$chol < mu - 3 * sigma | heart$chol > mu + 3 * sigma)
+# 2 'big' outliers for the chol
+
+mu = mean(heart$max_heart_rate)
+sigma = sd(heart$max_heart_rate)
+sum(heart$max_heart_rate < mu - 3 * sigma | 
+      heart$max_heart_rate > mu + 3 * sigma)
+# No 'big' outliers for the max_heart_rate
+
+mu = mean(heart$oldpeak)
+sigma = sd(heart$oldpeak)
+sum(heart$oldpeak < mu - 3 * sigma | heart$oldpeak > mu + 3 * sigma)
+# 7 'big' outliers for the oldpeak
+
+# Next approach (rest_blood_pressure, chol, max_heart_rate and oldpeak)
+# Inter Quantile Range
+QI = quantile(heart$rest_blood_pressure, 0.25)
+QS = quantile(heart$rest_blood_pressure, 0.75)
+IQR = QS - QI
+sum(heart$rest_blood_pressure < QI - 1.5*IQR | 
+      heart$rest_blood_pressure > QS + 1.5*IQR)
+# 28 values out of the IQR for rest_blood_pressure
+
+QI = quantile(heart$chol, 0.25)
+QS = quantile(heart$chol, 0.75)
+IQR = QS - QI
+sum(heart$chol < QI - 1.5*IQR | 
+      heart$chol > QS + 1.5*IQR)
+# 180 values out of the IQR for chol
+
+QI = quantile(heart$max_heart_rate, 0.25)
+QS = quantile(heart$max_heart_rate, 0.75)
+IQR = QS - QI
+sum(heart$max_heart_rate < QI - 1.5*IQR | 
+      heart$max_heart_rate > QS + 1.5*IQR)
+# 2 values out of the IQR for max_heart_rate
+
+QI = quantile(heart$oldpeak, 0.25)
+QS = quantile(heart$oldpeak, 0.75)
+IQR = QS - QI
+sum(heart$oldpeak < QI - 1.5*IQR | 
+      heart$oldpeak > QS + 1.5*IQR)
+# 16 values out of the IQR for oldpeak
+
+# Let's see that graphically
+g1 = ggplot(data = heart) + aes(x = rest_blood_pressure, y = 1) +
+     geom_boxplot(fill = "lightblue", color = "blue", 
+                  outlier.color = "red", outlier.shape = 16) +
+     xlab("Rest Blood Pressure") + theme_minimal() + 
+     geom_jitter(alpha = 0.7)
+
+# With this first boxplot, we realised that the feature 
+# rest_blood_pressure had strong outliers below 90 and above 180; with
+# a low variability (without those values)
+g1
+
+
+g2 = ggplot(data = heart) + aes(x = chol, y  = 1) +
+     geom_boxplot(fill = "lightblue", color = "blue", 
+                  outlier.color = "red", outlier.shape = 16) +
+     xlab("Cholesterol") + theme_minimal() + geom_jitter(alpha = 0.7)
+
+# Thanks to the second boxplot, we found values that did not make sense
+# chol as 0 or above 400; without these values it has a low variability 
+g2
+
+g3 = ggplot(data = heart) + aes(x = max_heart_rate, y = 1) +
+     geom_boxplot(fill = "lightblue", color = "blue", 
+                  outlier.color = "red", outlier.shape = 16) +
+     xlab("Max Heart Rate") + theme_minimal() + geom_jitter(alpha = 0.7)
+
+# Due to the geom_jitter() we saw that the values might follow a normal
+# distribution, in which outliers did not have a huge impact as long as
+# the sample size is sufficiently large. For the feature max_heart_rate
+g3
+
+g4 = ggplot(data = heart) + aes(x = oldpeak, y = 1) +
+     geom_boxplot(fill = "lightblue", color = "blue", 
+                  outlier.color = "red", outlier.shape = 16) +
+     xlab("Old Peak") + theme_minimal() + geom_jitter(alpha = 0.7)
+
+# In this fourth geom_jitter() we saw that the distribution of oldpeak
+# was strongly skewed, as a considerable amount of values lied at 0.
+# This gave us the reckoning that no matter the outliers, the
+# the distribution of the variable is not going to be affected
+g4
+```
+
+After seeing which values seem to get out of "normal" bounds, we must
+study those variables thoroughly.
+
+-   *rest_blood_pressure*:
+
+    -   **Abnormally low blood pressure** \< 90 mm Hg (life-threatening)
+
+    -   90 mm Hg \<= **Normal Blood Pressure**\<= 120 mm Hg
+
+    -   120 mm Hg \< **Elevated Blood Pressure** \<=129 mm Hg
+
+    -   130 mm Hg \<= **Hypertension Stage 1** \<= 139 mm Hg
+
+    -   140 mm Hg \<= **Hypertension Stage 2** \< 180 mm Hg
+
+    -   **Hypertensive Crisis** \>= 180 mm Hg (life-threatening)
+
+        We believe that the universities did not took the measurements
+        of patients in a risk of death. If those measurements were to be
+        true, they would be dead by now. So we reckon that those values
+        must be discarded, as they lack of coherence.
+
+-   *chol*:
+
+    -   **Desirable Total Cholesterol** \< 200 mg/dl
+
+    -   200 mg/dl \<= **Borderline High Total Cholesterol** \<= 239
+        mg/dl
+
+    -   240 mg/dl \<= **High Total Cholesterol** \> 400 mg/dl
+
+        From the plot we saw that there are a lot of conglomerated
+        values at 0, which make no sense, as it is impossible that a
+        person has 0 mg/dl of serum cholesterol. This makes us believe
+        that those values as 0, represent some kind of NA or a
+        measurement error. Therefore, handling those values is crucial.
+        Another thing to mention are the extreme values of total
+        cholesterol. Values above 400 mg/dl are a huge health risk and
+        may be errors, however checking the stage on those values to see
+        if they make sense will be a good idea.
+
+        So in conclusion for this feature, the problem is the high
+        amount of 0 values and seeing if values above 400 are coherent.
+
+-   *max_heart_rate*: the maximum heart rate is quite related to the
+    age. As it follows, when there are no exceptions the next ranges
+    depending on age approximately.
+
+    -   140 to 150 bpm -\> Adults 70 and older
+
+    -   150 to 160 bpm -\> Adults 60 to 69
+
+    -   160 to 170 bpm -\> Adults 50 to 59
+
+    -   170 to 180 bpm -\> Adults 40 to 49
+
+    -   180 to 190 bpm -\> Adults 30 to 39
+
+    -   190 to 200 bpm -\> Adults 20 to 29
+
+        There are a small amount of values below 120, we may have to see
+        the distribution of this variable, which seems to be normal
+        based on the small difference between the Median and the Mean.
+        So maybe we should not eliminate outliers here as they are not
+        affecting heavily the distribution of the data. Nevertheless a
+        [graphical study of the distribution]{.underline} will verify if
+        this assumption is true or not.
+
+-   *oldpeak*: has only 7 outliers from the plot and the summary we see
+    that has a right skewed distribution, heavily produced due to the
+    high amount of values at 0. So eliminating here outliers does not
+    seem a good idea. However, a [graphical check of the
+    distribution]{.underline} will be a good way to check our
+    assumption. Taking absolute values we have (note that we can take
+    absolute values as it as measurement in millimeters which means that
+    a negative value shows that the depression was caused in the other
+    sense of the point of reference):
+
+    -   **Normal or No ST Depression**: *oldpeak* value of 0 (typically
+        considered no ST depression).
+
+    -   **Mild ST Depression**: *oldpeak* values from approximately 0.5
+        to 1.0 millimeters.
+
+    -   **Moderate ST Depression**: *oldpeak* values from approximately
+        1.1 to 2.0 millimeters.
+
+    -   **Severe ST Depression**: *oldpeak* values greater than 2.0
+        millimeters.
+
+```{r}
+summary(heart)    # to check again the values
+# rest_blood_pressure OUTLIERS
+# Outliers that make no sense
+sum(heart$rest_blood_pressure < 90)     # only 2
+sum(heart$rest_blood_pressure >= 180)   # 20 values
+# Let's check those values
+indeces1 = which((heart$rest_blood_pressure < 90) | 
+                  (heart$rest_blood_pressure >= 180))
+print(heart[indeces1, ])
+# As below 90 there are just 2 observations, we will eliminate those
+heart = heart[heart$rest_blood_pressure >= 90, ]
+# Now our indeces will be
+indeces1 = which(heart$rest_blood_pressure >= 180)
+print(heart[indeces1, ])
+# For the rest 20 values that have a rest_blood_pressure above 180
+# we will study them later
+
+# chol OUTLIERS
+sum(heart$chol == 0)      # huge amount (165 values)
+sum(heart$chol > 400)     # very few (13 values)
+# Let's check those values
+indeces2_1 = which((heart$chol == 0))
+indeces2_2 = which((heart$chol > 400))
+print(heart[indeces2_1, ])
+print(heart[indeces2_2, ])
+# chol over 400 seems to be in just a few cases in which the rest of
+# the results are coherent and cohesive. Therefore, instead of deleting
+# these obeservations a change of the chol by the mean of the chol
+# that have their corresponding age group will be the approach
+# groups of age -> NEW FEATURE
+# 70 and older; 60 to 69; 50 to 59; 40 to 49; 30 to 39; 20 to 29
+heart$ageGroups = numeric(nrow(heart))
+for (i in 1:nrow(heart)){
+  if (20 <= heart$age[i] && heart$age[i] <= 29){
+    heart$ageGroups[i] = 0
+  }else if (30 <= heart$age[i] && heart$age[i] <= 39){
+    heart$ageGroups[i] = 1
+  }else if (40 <= heart$age[i] && heart$age[i] <= 49){
+    heart$ageGroups[i] = 2
+  }else if (50 <= heart$age[i] && heart$age[i] <= 59){
+    heart$ageGroups[i] = 3
+  }else if (60 <= heart$age[i] && heart$age[i] <= 69){
+    heart$ageGroups[i] = 4
+  }else{
+    heart$ageGroups[i] = 5
+  }
+}
+
+# Then we factorise this new variable
+heart$ageGroups = as.factor(heart$ageGroups)
+min(heart$age[which((heart$chol > 400))]) # minimum age
+max(heart$age[which((heart$chol > 400))]) # maximum age
+# So we need to compute the mean of the group of ages 1, 2, 3 and 4
+# when chol is != 0 and <= 400
+mean1 = mean(heart$chol[heart$chol <= 400 & heart$chol != 0 &
+                        heart$ageGroups == 1])
+mean1
+mean1 = ceiling(mean1)  # chol is an integer
+mean1
+
+mean2 = mean(heart$chol[heart$chol <= 400 & heart$chol != 0 & 
+                        heart$ageGroups == 2])
+mean2
+mean2 = ceiling(mean2)  # chol is an integer
+mean2
+
+mean3 = mean(heart$chol[heart$chol <= 400 & heart$chol != 0 & 
+                        heart$ageGroups == 3])
+mean3
+mean3 = ceiling(mean3)  # chol is an integer
+mean3
+
+mean4 = mean(heart$chol[heart$chol <= 400 & heart$chol != 0 & 
+                        heart$ageGroups == 4])
+mean4
+mean4 = ceiling(mean4)  # chol is an integer
+mean4
+
+# Then we change the value where chol > 400 by its corresponding mean
+for (i in 1:length(indeces2_2)){
+  index_to_use = indeces2_2[i]
+  if (heart$ageGroups[index_to_use] == 1){
+    heart$chol[index_to_use] = mean1
+  }else if (heart$ageGroups[index_to_use] == 2){
+    heart$chol[index_to_use] = mean2
+  }else if (heart$ageGroups[index_to_use] == 3){
+    heart$chol[index_to_use] = mean3
+  }else{
+    heart$chol[index_to_use] = mean4
+  }
+}
+
+# Now the problem is in the observations that have chol as 0
+# For chol = 0 we will be studying other variables and seek for intersections and relations later
+print(heart[indeces2_1, ])
+
+# Let's study the percentage of observations that have 0 as chol
+count_chol_0 = sum(heart$chol == 0)
+total_observations = nrow(heart)
+percentage_chol_0 = (count_chol_0 / total_observations) * 100
+cat("Percentage of rows with chol equal to 0:", 
+    percentage_chol_0, "%\n")
+
+# For the max_heart_rate we will see if our assumption was true
+g5 = ggplot(data = heart) + aes(x = max_heart_rate, color = "orange") + 
+     geom_density(alpha = 0.5, fill = "orange") +
+     labs(title = "Distribution of the Max Heart Rate", 
+          xlab = "Max Heart Rate")
+g5
+# We see that it tends to be a normal distribution skewed, so because of
+# this, the IQR and the 3-sigma rule, we will not delete any values
+
+# We will procceed the same for oldpeak
+g6 = ggplot(data = heart) + aes(x = oldpeak, color = "navy") +
+     geom_density(alpha = 0.5, fill = "navy")+
+     labs(title = "Distribution of the Oldpeak", 
+          xlab = "Oldpeak")
+g6
+# We see that our assumption was right, we do not need to eliminate
+# oldpeak outliers
+summary(heart)
+```
+
+***Checkpoint*** -\> so far our handling of the outliers has fulfilled
+the following things stated before:
+
+-   *rest_blood_pressure* -\> values below 90 (still not values above
+    180 which are 20).
+
+-   *chol* -\> values above 400 have been substituted by the mean of its
+    corresponding age group. However the values that are 0 (more than
+    160 values) have still not been taken care of.
+
+-   *max_heart_rate* and *oldpeak* -\> our assumption that the possible
+    few outliers did not affect the distribution of both features was
+    right. Therefore they were not deleted.
+
+To sum up, the last outliers to analyse are the *rest_blood_pressure*
+values above 180 and the *chol* values that are 0.
+
+```{r}
+# First we will look for the values that are both 0 in chol and above
+# 180 in rest_blood_pressure
+common_indeces = which(heart$chol == 0 & 
+                         heart$rest_blood_pressure >= 180)
+common_indeces
+# We delete those observations
+heart = heart[- common_indeces, ]
+summary(heart)
+
+# Let's check how many outliers for chol and rest_blood_pressure
+# are left
+sum(heart$chol == 0)                  # 159 left
+sum(heart$rest_blood_pressure >= 180) # 15 left
+
+# We will study to which range of ages belong this variables
+max(heart$age[which(heart$chol == 0)])
+min(heart$age[which(heart$chol == 0)])
+max(heart$age[which(heart$rest_blood_pressure >= 180)])
+min(heart$age[which(heart$rest_blood_pressure >= 180)])
+# We see both variables cover almost the same ranges
+heart[which(heart$chol == 0), ]
+heart[which(heart$rest_blood_pressure >= 180), ]
+
+# We see that the values at the "frontier" are the wide majority
+# So the value strictly greater are
+sum(heart$rest_blood_pressure > 180)
+# We will delete those observations and keep the rest 180 values at
+# the "frontier"
+indeces_delete = which(heart$rest_blood_pressure > 180)
+heart = heart[- indeces_delete, ]
+
+summary(heart)
+# In the end, we will procceed with the remaining 0s in chol by the
+# mean of group of age; remember the ages covered from 32 to 76
+last_indeces = which(heart$chol == 0)
+for (i in 1:length(last_indeces)){
+  to_use = last_indeces[i]
+  if (heart$ageGroups[to_use] == 1){
+    heart$chol[to_use] = mean1
+  }else if (heart$ageGroups[to_use] == 2){
+    heart$chol[to_use] = mean2
+  }else if (heart$ageGroups[to_use] == 3){
+    heart$chol[to_use] = mean3
+  }else{
+    heart$chol[to_use] = mean4
+  }
+}
+summary(heart)
+
+# New boxplot where we have "new" outliers that are not errors and make
+# sense
+g7 = ggplot(data = heart) + aes(x = heart$chol) + 
+     geom_boxplot(fill = "lightblue", color = "blue", 
+                  outlier.color = "red", outlier.shape = 16) +
+     geom_jitter(aes(y = 0), alpha = 0.5) + theme_minimal() +
+     xlab("Cholesterol")
+
+# This boxplot of the variable chol have a few outliers which actually make sense
+g7
+```
+
+We have finally have our data ready to go. However, normalising and
+standarising it could be a great idea to compare the variability and the
+results between features.
+
+### **1.4 Normalization**:
+
+We need to normalize the numerical variables in order to have the same
+scale, without losing any information.
+
+```{r}
+# We save the data set before normalizing for future plots
+heart_not_norm <- heart
+
+heart$age <- (heart$age - min(heart$age))/(max(heart$age) - min(heart$age))
+
+heart$rest_blood_pressure <- (heart$rest_blood_pressure - min(heart$rest_blood_pressure))/(max(heart$rest_blood_pressure) - min(heart$rest_blood_pressure))
+
+heart$chol <- (heart$chol - min(heart$chol))/(max(heart$chol) - min(heart$chol))
+
+heart$max_heart_rate <- (heart$max_heart_rate - min(heart$max_heart_rate))/(max
+(heart$max_heart_rate) - min(heart$max_heart_rate))
+
+heart$oldpeak <- (heart$oldpeak - min(heart$oldpeak))/(max(heart$oldpeak) - min(heart$oldpeak))
+
+summary(heart)
+```
+
+## 2. Visualization
+
+In addition to the plots we have already created during the feature
+engineering process, we are going to create some additional ones to gain
+a deeper understanding of the dataset.
+
+As a first approach for visualizing the data we are going to create a
+variable that divides the dataset in 2 group (boolean), where true will
+be that they have any stage of disease (this may be useful for
+visualization the future results).
+
+```{r}
+heart <- heart %>%
+  mutate(heart_disease = heart$stage != 0)
+
+heart$heart_disease = as_factor(heart$heart_disease)
+heart_not_norm$heart_disease = as_factor(heart$heart_disease)
+
+sex_plot = factor(heart$sex, levels = c(0, 1),
+                      labels = c("Male", "Female"))
+chest_pain_plot = factor(heart$chest_pain,
+                          labels = c("asymptomatic",
+                                     "typical angina",
+                                     "atypical angina",
+                                     "non-anginal"),
+                          levels = c(0, 1, 2, 3))
+
+# Using this new variable will make much easier the visualization of the data
+heart_not_norm %>% ggplot(aes(x=heart_disease, y = max_heart_rate)) + geom_boxplot(fill="lightblue") +
+  xlab("Heart Disease?") +
+  ylab("Max Heart Rate") +
+  labs(title = "Heart Disease vs Max Heart Rate ")
+```
+
+People with a low max heart rate tend to have a heart disease.
+
+```{r}
+ggplot(data = heart_not_norm, aes(x = age, y = max_heart_rate, color = sex_plot)) +
+  geom_point()+
+  geom_smooth()+
+  xlab("Age") +
+  ylab("Maximum Heart Rate") +
+  labs(title = "Relationship Between Max Heart Rate and Age",
+       subtitle = "Divided by gender",
+       color = "Gender")
+  
+```
+
+We can see that there is a very soft correlation between these
+variables, at higher ages the max heart rates become lower. We can also
+appreciate that
+
+```{r}
+
+ggplot(data = heart, aes(x = chest_pain, fill = chest_pain_plot)) +
+  geom_bar() +
+  xlab("Chest Pain") +
+  ylab("Count") +
+  labs(title = "Number of Observations by Type of Chest Pain",
+       fill = "Chest Pain")
+```
+
+The majority of our observations have asymptomatic chest pain.
+
+```{r}
+ggplot(data = heart, aes(x = chest_pain, y = heart_not_norm$max_heart_rate, 
+                         color = chest_pain_plot)) +
+  geom_boxplot() +
+  geom_jitter(size = 1, alpha = 0.2) +
+  facet_grid(~ slope, labeller = labeller(slope = c("0" = "Downsloping",
+                                                    "1" = "Flat",
+                                                    "2" = "Upsloping"))) +
+  xlab("Chest Pain") +
+  ylab("Max Heart Rate") +
+  labs(title = "Impact of Blood Pressure in Appearance of Chest Pain",
+       subtitle = "Divided by slope groups",
+       color = "Chest Pain")
+```
+
+We can see that the few people that has a "downsloping" slope belong to
+the asymptomatic chest pain group. Besides, we can see that the
+"upsloping" group has, in general, a higher heart rate than the other
+slope groups. Finally, the people with asymptomatic chest pain (group 0)
+tend to present a lower maximum heart rate with respect to the others.
+
+```{r}
+ggplot(data = heart_not_norm, aes(x = chol)) +
+       geom_histogram(binwidth = 30, fill = "blue", color = "black")
+```
+
+The cholesterol is distributed normally.
+
+```{r}
+ggplot(data = heart_not_norm, aes(x = sex, y = age, fill = sex_plot)) +
+  geom_violin()+
+  geom_boxplot(alpha = 0.2) +
+  geom_jitter(alpha = 0.3) +
+  facet_grid(.~ exang) +
+  xlab("Gender") +
+  ylab("Age") +
+  labs(title = "Age and Gender depending of the Exang",
+       subtitle = "Exang - Exercise induced angina (True / False)",
+       fill = "Gender")
+```
+
+Older people tend to have more an exercise induced angina, no matter
+their gender.
+
+```{r}
+ggplot(data = heart, aes(x = rest_blood_pressure, fill = sex_plot)) +
+       geom_density(alpha = 0.5) +
+  xlab("Rest Blood Pressure") +
+  labs(fill = "Gender",
+       title = "Density of Blood Pressure at Rest by Gender")
+```
+
+The blood pressure at rest of a person does not depend on its gender.
+
+```{r}
+ggplot(data = heart, aes(x = blood_sugar, fill = sex_plot)) +
+       geom_bar(position = "fill") +
+  xlab("Blood Sugar") +
+  ylab("Percentage") +
+  labs(title = "Gender Percentages by Blood Sugar > 120 mg/dl",
+       fill = "Gender")
+```
+
+The values are pretty similar for both groups of blood sugar. However,
+the majority of women are \<120 mg/dl while the majority of men have a
+blood sugar level of \>120 mg/dl.
+
+```{r}
+ggplot(data = heart_not_norm, aes(x = rest_blood_pressure, 
+                                  y = max_heart_rate, 
+                                  color = heart_disease)) +
+       geom_point() +
+       facet_wrap(~ sex,  labeller = labeller(sex = c("0" = "Male",
+                                                      "1" = "Female"))) + 
+  xlab("Rest Blood Pressure") +
+  ylab("Max Heart Rate") +
+  labs(title = "Rest Blood Pressure vs Max Heart Rate divided by Gender",
+       color = "Heart Disease")
+  
+```
+
+We can see a higher range of heart rates for males than for females.
+Besides, there is no apparent correlation between heart rate and blood
+pressure.
+
+```{r}
+ggplot(data = heart, aes(x = chest_pain_plot, fill = exang)) +
+      geom_bar(position = "dodge") +
+      facet_grid(sex ~ .,  labeller = labeller(sex = c("0" = "Male",
+                                                      "1" = "Female"))) +
+  xlab("Chest Pain Type") +
+  ylab("Count") +
+  labs(title = "# of People with each Chest Pain Type",
+       subtitle = "Divided by Gender and Exercise-induced angina")
+```
+
+There were less meassurements for gender female than for gender male.
+They seem to have the same tendency overall with more or less the same
+proportions. The differences of proportions are not noticeable, however,
+very few females had exercise-induced angina.
+
+```{r}
+ggplot(data = heart_not_norm, aes(x = exang, y = max_heart_rate, fill = slope)) +
+       geom_boxplot() +
+  xlab("Exercise-Induced Angina")+
+  ylab("Max Heart Rate") +
+  labs(title= "Heart Rates of the different slope groups divided by exang",
+       subtitle = "exang - exercise-induced angina")
+```
+
+The heart rates of all kinds of slope values are higher for the people
+without an exercise-induced angina. Besides, the group with level 2
+slope has the highest max_heart_rate value no matter the exang.
+
+```{r}
+library(corrplot)
+correlation_matrix <- cor(heart[, sapply(heart, is.numeric)])
+corrplot(correlation_matrix, method = "color", tl.cex = 0.55)
+```
+
+We can appreciate that the max_heart_rate is negatively related to all
+the other variables. We can also highlight that the strongest
+relationship is between age and max_heart_rate.
+
+```{r}
+library(GGally)
+
+ggpairs(heart, columns = c("age", "max_heart_rate", "chol", "rest_blood_pressure"),
+        aes(color = sex), 
+        lower = list(geom_smooth(method = "lm"),
+        mapping = aes(fill = sex)))
+```
+
+No important relationships obtained.
+
+## 3. PCA
+
+We are going to start by making a brief descriptive analysis:
+
+Dimension 1: univariate analysis.
+
+```{r}
+heart_pca = heart[,c("age", "rest_blood_pressure", "chol", "max_heart_rate",
+                     "oldpeak")]
+
+boxplot(heart_pca, las=2, col="lightblue")
+
+```
+
+Dimension 2: bivariate analysis.
+
+```{r}
+ggcorr(heart_pca, label = TRUE)
+
+cor_mat = cor(heart_pca)
+heatmap(cor_mat)
+```
+
+We can see that there are no big relationships between the features
+since all the values obtained by the correlation matrix are very low,
+which will make the analysis more difficult.
+
+We can start with the **Principal Components.**
+
+```{r}
+pca = prcomp(heart_pca, scale=T)
+summary(pca)
+
+```
+
+We can see that with the 2 first PCs we can only explain a 54% of the
+variability of the data.
+
+```{r}
+
+# eigen(cor(heart_numeric))  
+# screeplot(pca,main="Screeplot",col="blue",type="barplot",pch=19)
+
+fviz_screeplot(pca, addlabels = TRUE)
+```
+
+### 3.1 First Principal Component
+
+```{r}
+# First Component
+barplot(pca$rotation[,1], las=2, col="#E26D5C")
+
+# Let's try with squared loadings instead
+fviz_contrib(pca, choice = "var", axes = 1)
+```
+
+This first component shows us that the most significant fact in the
+appearance of any sort of heart disease is the **age**. This is followed
+by the maximum heart rate, the oldpeak and the blood pressure, which are
+all around 20%. Finally, the cholesterol does not seem to have a
+noticeable impact.
+
+Moreover, let us search any further kind of relationship obtained by the
+PC1 ranking of observations.
+
+```{r}
+# The worst
+heart$stage[order(pca$x[,1])][(length(heart)-5):length(heart)]
+
+# The best
+heart$stage[order(pca$x[,1])][1:10]
+
+```
+
+We cannot obtain any useful information just with 1 component related to
+the disease.
+
+```{r}
+head(get_pca_ind(pca)$contrib[,1]) # this is in %, that is between 0 and 100
+head((pca$x[,1]^2)/(pca$sdev[1]^2))/dim(heart_pca)[1] # this is between 0 and 1
+
+fviz_contrib(pca, choice = "ind", axes = 1, top=100)
+```
+
+### 3.2 Second Principal Component
+
+```{r}
+# Second Component
+barplot(pca$rotation[,2], las=2, col="darkblue")
+
+fviz_contrib(pca, choice = "var", axes = 2)
+```
+
+In this case we obtained that the highest contribution to this Second
+Principal Component was given by the cholesterol level. The remaining
+features are almost insignificant. Since rest_blood_pressure,
+max_heart_rate and cholesterol are positive we understand that having a
+high cholesterol level did also affect to the other two variables
+somehow.
+
+We can now plot the PC1 and PC2 to try to obtain some extra information:
+
+```{r}
+biplot(pca)
+
+fviz_pca_var(pca, col.var = "contrib", col.ind = heart$stages)
+# fviz_pca_biplot(pca, repel = TRUE)
+
+fviz_pca_biplot(pca, label = "var",
+                habillage=heart$heart_disease,
+                addEllipses=TRUE,
+                ellipse.level=0.95,
+                ggtheme = theme_minimal(),
+                legend.title = "Health Disease")
+```
+
+We can see that even if both people with and without heart disease are
+pretty distributed randomly, we can identify a trend. The points that
+are in the direction of the negative variables of the first principal
+component (age, old_peak, rest_blood_pressure) tend to represent the
+people with the heart disease, while the points in the direction of the
+max_heart_rate tend to be the scores of the healthy group.
+
+```{r}
+
+highest_ranked = heart$stage[order(get_pca_ind(pca)$contrib[,1],decreasing=T)][1:10]
+
+# percentage of the highest ranked people that are indeed healthy
+(sum(highest_ranked == 0)/length(highest_ranked))*100
+```
+
+We obtained that 70% of the highest ranked people by the PC does not
+have a heart disease. This may be related to the high influence of
+max_heart_rate in the PC1 and in having or not a heart disease.
+
+```{r}
+data.frame(z1=-pca$x[,1],z2=pca$x[,2]) %>% 
+  ggplot(aes(z1,z2,label= heart$stage, color=heart_not_norm$age)) +
+  labs(title="PCA", x="PC1", y="PC2", color = "Age") +
+  theme_bw() + 
+  scale_color_gradient(low="#FFE1A8", high="#E26D5C")+
+  theme(legend.position="bottom") +
+  geom_text(size=3, hjust=0.6, vjust=0, check_overlap = TRUE)
+```
+
+It is notable that the age values are very related to the PC1. It makes
+a lot of sense since the higher contribution to that PC was indeed the
+age.
+
+```{r}
+data.frame(z1=pca$x[,1],z2=pca$x[,2]) %>% 
+  ggplot(aes(z1,z2,label=heart$stage, color=heart_not_norm$chol)) +
+  labs(title="PCA", x="PC1", y="PC2", color = "Cholesterol") +
+  theme_bw() +
+  scale_color_gradient(low="#FFE1A8", high="#E26D5C")+
+  theme(legend.position="bottom") +
+  geom_text(size=3, hjust=0.6, vjust=0, check_overlap = TRUE)
+```
+
+As we expected, the first principal component does not change with
+cholesterol but, on the other hand, the PC2 has very different
+cholesterol values for the positive than for the negative side.
+
+```{r}
+data.frame(z1=pca$x[,1],z2=heart$max_heart_rate) %>% 
+  ggplot(aes(z1,z2,label=heart$stage,color=heart_not_norm$rest_blood_pressure)) + 
+  labs(title="Performance", x="PC1", y="Max heart rate") +
+  scale_color_gradient(low="#FFE1A8", high="#E26D5C") +
+  theme_bw() +
+  theme(legend.position="bottom") +
+  geom_text(size=2, hjust=0.6, vjust=0, check_overlap = TRUE)
+```
+
+Let us plot this in a different way in order to obtain a more visual
+representation of it.
+
+```{r}
+ggplot()+
+  aes(x = pca$x[,1], y = heart_not_norm$max_heart_rate, color = heart$heart_disease) +
+  geom_point()+
+  geom_smooth(color = "cyan")+
+  xlab("PC1")+
+  ylab("Max Heart Rate") +
+  labs(color = "Heart Disease")
+
+```
+
+This plot shows how the max heart rate increases with the First
+Principal component. Moreover, the values where the max heart rate is
+higher we obtain a greater number of healthy people. Therefore, heart
+diseases are related with low heart rates.
+
+### 3.3 Third Principal Component
+
+```{r}
+# Third Component
+barplot(pca$rotation[,3], las=2, col="darkblue")
+
+fviz_contrib(pca, choice = "var", axes = 3)
+```
+
+In this case, the Third Principal Component is predominantly influenced
+by blood pressure and heart rate. The positive values of
+rest_blood_pressure, max_heart_rate, and oldpeak in the barplot suggest
+that this PC primarily relates to the individual's heartbeat and blood
+circulation.
+
+```{r}
+df_pca = data.frame(PC1 = pca$x[,1],
+                    PC2 = pca$x[,2],
+                    PC3 = pca$x[,3])
+
+ggpairs(df_pca, columns = c("PC1", "PC2", "PC3"), 
+        aes(color = heart$heart_disease), 
+        lower = list(geom_smooth(method = "lm"),
+        mapping = aes(fill = heart$heart_disease)))
+```
+
+This plot shows us that the PC1 is the main component to separate the
+people with a heart disease from the people without it. Besides, since
+the highest contribution to this component was given by the age, we can
+conclude that it is the most important variable in the apparition of
+heart diseases.
+
+## 4. Factor Analysis
+
+This data set has a [peculiar characteristic]{.underline}, which is the
+**amount of categorical variables** in detriment of the numerical ones.
+However, we can take this to our advantage. We know that categorical
+variables, that are factors, can then be transformed to numerical.
+Nevertheless, most of the times categorical variables have a huge impact
+to the results. So, we thought of using [3 auxiliary data
+sets]{.underline} for the purpose of this analysis. **One** will have
+**only the numerical features**, whereas the **other one** will be
+composed of **all the possible variables turned into numerical when
+needed** [**without** our target variable]{.underline} (***stage***) as
+that would have a huge weight. Also, to clarify our assumptions that the
+variable *stage* is taking all the weight of the model, we will do
+**another one** with **all the variables** with no exception.
+
+This way we could compare results between the 2 data sets and also
+compare with some individual plots of the categorical variables. As it
+was done in the Lab 5-6 related to clustering.
+
+```{r}
+glimpse(heart)
+# Let's first delete the created variables used before
+heart_fa1 = heart %>% select(-heart_disease, - ageGroups)
+
+# we delete the targe variable
+heart_fa1 = heart_fa1 %>% select(-stage)
+
+# Data set with all variables (converting to numerical when needed)
+for(i in which(sapply(heart_fa1, class) == "factor")) {
+  heart_fa1[,i] <- as.numeric(as.character(heart_fa1[,i]))
+}
+
+# Then we normalise the variables that were categorical and
+# had different values from [0, 1] strictly:
+# chest_pain; restcg; slope
+heart_fa1$chest_pain = (heart_fa1$chest_pain - 
+                          min(heart_fa1$chest_pain)) / 
+                        (max(heart_fa1$chest_pain) 
+                         - min(heart_fa1$chest_pain))
+heart_fa1$restecg = (heart_fa1$restecg - 
+                          min(heart_fa1$restecg)) / 
+                        (max(heart_fa1$restecg) 
+                         - min(heart_fa1$restecg))
+heart_fa1$slope = (heart_fa1$slope - 
+                          min(heart_fa1$slope)) / 
+                        (max(heart_fa1$slope) 
+                         - min(heart_fa1$slope))
+# Now we have our full numerical data set ready to go
+
+# Data set with just the numerical variables
+heart_fa2 = heart[sapply(heart, is.numeric)]
+
+# Factor Analysis for all variables
+fa1 = factanal(heart_fa1, factors = 3, rotation="none", 
+              scores = "regression")
+fa1
+cbind(fa1$loadings, fa1$uniquenesses)
+
+# Factor Analysis for just the numerical variables
+fa2 = factanal(heart_fa2, factors = 2, rotation="none", 
+              scores = "regression")
+fa2
+cbind(fa2$loadings, fa2$uniquenesses)
+```
+
+As a first approach, we get a strong difference between using all the
+variables (except the *stage*) and using just the strictly numerical.
+
+When we are using only numerical we get poor model with a p-value around
+0.7 and see that we will not get strong relationships and a strong
+explanation of the variability of the data set. As we have seen before
+in the PCA.
+
+At the time of studying all variables as numerical, except the target
+variable, we get a strong model, in which all the SS loadings of the
+factors are above 0.6, which is actually a quite good result.
+
+However, these results are just a first glance. As we are using the
+function ***factanal()*** we need to know what we are doing and how our
+parameters may affect our study.
+
+-   *factors* -\> number of factors to extract, this specifies the
+    dimensionality of the factor solution.
+
+-   *scores* -\> factor scores are numeric values that represent how
+    much each observed variable contributes to each of the extracted
+    factors. This parameter can take 3 values:
+
+    -   *none* -\> no factor scores will be computed
+
+    -   *"regression"* -\> it will compute the factor scores with the
+        Thompson's Regression method, which focus on calculating
+        uncorrelated scores and having a minimum sum of squared
+        differences.
+
+    -   "*Bartlett*" -\> it will compute the factor scores with the
+        Bartlett's weighted least-squares method, which focus on
+        maximising the variance explained by the factors.
+
+-   *rotation* -\> there are several rotation methods with several
+    effects such as the assumption of relationship between variables.
+    There are several:
+
+    -   "*varimax*" (minimises the variance between factors).
+    -   "*promax*" (strong assumptions that factors should be
+        correlated).
+    -   "*none*" (computes no rotation)*.*
+
+In order to see better and clearer the results we will divide from now
+on between the factor analysis corresponding to each auxiliary data set.
+
+### 4.1 All variables except *stage* (FA)
+
+We will start the factor Analysis with the data set *heart_fa1* which is
+composed of all the variables turned into numerical when needed,
+excluding the feature *stage*.(Every feature was normalised).
+
+```{r}
+# In short, we have
+# heart_fa1 # all(almost)
+# heart_fa2 # numerical
+
+# To compare the different results we will follow...
+# fa1_X -> factor analisys for the 1st data set
+# fa2_X -> factor analisys for the 2nd data set
+# Let's start with all the the variables data set
+# Changing the scores
+fa1_1 = factanal(heart_fa1, factors = 3, rotation= "none", 
+              scores = "none")
+fa1_1
+# "regression" -> SS loadings      1.645   1.248   0.608
+# "Bartlett"   -> SS loadings      1.645   1.248   0.608
+# "none"       -> SS loadings      1.645   1.248   0.608
+# We see that the scores parameter in this case does not affect
+# the result
+
+# Now we will see how the value of rotation affects our results
+fa1_2 = factanal(heart_fa1, factors = 3, rotation= "promax", 
+              scores = "none")
+fa1_2
+# None ->    SS loadings      1.645   1.248   0.608 -> 3.501
+# Varimax -> SS loadings      1.599   0.975   0.926 -> 3.500
+# promax ->  SS loadings      1.469   0.979   0.899 -> 3.347
+# We see that there is practically no difference between using
+# varimax or no rotation. The relevant conclusion is to not use
+# promax (in this case)
+
+# Then, we will see which number of factors is the best
+nFactors::plotnScree(nFactors::nScree(x = eigen(cor(heart_fa1))$values),legend = F, main = "Optimal Amount of Factors (Elbow Method)", xlab = "Number of Factors")
+abline(h = 0.90, col = "purple", lty = 6)
+# By the Elbow Method we see the optimal amount of factors is between 4 and 5
+# Let's compare
+fa1_3 = factanal(heart_fa1, factors = 4, rotation= "none", 
+              scores = "none")
+fa1_3
+fa1_4 = factanal(heart_fa1, factors = 5, rotation= "none", 
+              scores = "none")
+fa1_4
+# 4 Factors -> SS loadings 1.612   1.289   0.638   0.601
+# 5 Factors -> SS loadings 1.544   1.486   0.676   0.573   0.254
+# We can discard the last factors for fa1_4
+# The best option is 4 Factors
+fa1_best = fa1_3
+fa1_best
+```
+
+After getting the best model, 4-factor with neither scores nor rotation,
+we will interpret the results.
+
+```{r}
+# Auxiliary data frame to store all the the loadings per factor
+factors1 = data.frame(Variable = rownames(fa1_best$loadings),
+                      Factor1 = fa1_best$loadings[, 1],
+                      Factor2 = fa1_best$loadings[, 2],
+                      Factor3 = fa1_best$loadings[, 3],
+                      Factor4 = fa1_best$loadings[, 4])
+# Now having a column that indicates the factor to which the 
+# loading belongs to
+loadings_fa1 = tidyr::gather(factors1, Factor, 
+                             Loading, -Variable)
+# Final barplot with all the Factors and their loadings
+gFactors1 = ggplot(data = loadings_fa1, aes(x = Variable, 
+                                            y = Loading,
+                                            fill = Factor)) +
+            geom_bar(stat = "identity") +
+            labs(title = "Factor Analysis Loadings",
+                 subtitle = "All variables except stage",
+                 x = "Variable", 
+                 y = "Loadings") + theme_minimal() + 
+            theme(axis.text.x = element_text(angle = 45, 
+                                             hjust = 1)) +
+            facet_wrap(~Factor, scales = "free")
+gFactors1
+```
+
+From this first Factor Analysis procedure we see 4 factors, that show us
+4 different tendencies of patients. All of the factors are not defined
+by the cholesterol, it is a variable that does not give us much
+information about the patient.
+
+-   Factor 1 -\> shows us patients that its heart behavior can be
+    explained mainly by the *slope*.
+
+    The *age* and the *max_heart_rate* are negatively correlated, as we
+    expected before. But giving more importance to the *max_heart_rate*,
+    this observation is quite relevant as in the data set we had much
+    less observations of young people than older people. In addition to
+    the low influence of the *sex*, it has influence but just a small
+    percentage. Therefore, it is fair to assume that this factor is
+    explaining younger patients.
+
+    With *exang* and *oldpeak* we have a positive correlation between
+    them (negative in overall), which makes sense: if you do not show
+    discomfort while exercising (*exang*) then the normal thing would be
+    to not show any kind of heart depression (*oldpeak*).
+
+    From these statements we can deduce that this factor is focused on
+    the tendency of **healthy (or usual) young patients**, as their
+    correlations follow what a healthy (or usual for what a younger)
+    person would get, therefore the weight goes to the *slope* in which
+    the original value 1 meant no main problems, whereas 0 and 2 meant
+    heart consequences.
+
+-   Factor 2 -\> shows directly that the higher the *age* the lower the
+    *max_heart_rate*, most of the weight of these patients stays between
+    that duality. But sharing importance with the feature *exang*.
+
+    Another duality seen, but with a positive relationship is
+    *chest_pain* and *exang*. In this case the relationships shows more
+    weight to *exang*, this relationship is coherent as if an individual
+    experienced some discomfort while exercising *exang* would be True
+    and the *chest_pain* would be in between 0, 1 or 2 but no 3. The
+    features *oldpeak*, *rest_blood_pressure* and *sex* follow adequate
+    results.
+
+    Due to the positive relevance of the *age*, other features related
+    to the appearance of heart issues and the dualities mentioned, we
+    can conclude that this factor explains **older patients in moderate
+    heart risks**.
+
+-   Factor 3 -\> the main thing to mention is an overall positively
+    correlation between all the features (excluding the ones with no
+    relevance). In this factor it can be deduced simply that it shows
+    the patients that have a tendency of having big *max_heart_rate*,
+    *oldpeak*, *rest_blood_pressure*, which are usually older patients
+    but the *age* does not have an outstanding importance. Due to this
+    high importance on values that when positive affect badly the
+    heart's health of the patient we deduce that this factor describes
+    the tendency of **patients with high heart risks**.
+
+-   Factor 4 -\> in this factor we see the usual behaviour between *age*
+    and *max_heart_rate*. However, here the *max_heart_rate* is not
+    decreasing as strong as it does the *age*, which is a good indicator
+    of heart's health.
+
+    We see lots of indicators of a healthy heart, not experiencing
+    discomfort while exercising while increasing *age* (*exang*), almost
+    no effect of increasing *age* on *oldpeak*. Also the rest of the
+    features have adequate values. Therefore we can conclude that this
+    factor is explaining the tendency of **overall healthy patients**.
+
+### 4.2 Strictly numerical features (FA)
+
+The next Factor Analysis procedure will be focused on the auxiliary data
+set *heart_fa2*, which is composed with the strictly numerical variables
+(just 5).
+
+```{r}
+# Our data set to work is heart_fa2
+fa2 = factanal(heart_fa2, factors = 2, rotation = "promax", 
+              scores = "none")
+fa2
+# Let's see the optimal number of factors
+nFactors::plotnScree(nFactors::nScree(x = eigen(cor(heart_fa2))$values),legend = F, main = "Optimal Amount of Factors (Elbow Method)", xlab = "Number of Factors")
+# 2 factors
+# Then study scores and rotation
+# scores
+# regression -> SS loadings      1.118   0.327
+# Bartlett   -> SS loadings      1.118   0.327
+# none       -> SS loadings      1.118   0.327
+# Rotation
+# none       -> SS loadings      1.118   0.327 -> 1.445
+# varimax    -> SS loadings      0.866   0.578 -> 1.444
+# promax     -> SS loadings      0.936   0.494 -> 1.43
+# Between varimax and none we will use the one that helps us more to visualise
+fa2_best = factanal(heart_fa2, factors = 2, 
+                    rotation = "varimax", scores = "none")
+```
+
+We will study graphically first and analyse the results.
+
+```{r}
+# Plotting (same as before but with less factors)
+# Auxiliary data frame to store all the the loadings per factor
+factors2 = data.frame(Variable = rownames(fa2_best$loadings),
+                      Factor1 = fa2_best$loadings[, 1],
+                      Factor2 = fa2_best$loadings[, 2])
+# Now having a column that indicates the factor to which the 
+# loading belongs to
+loadings_fa2 = tidyr::gather(factors2, Factor, 
+                             Loading, -Variable)
+# Final barplot with all the Factors and their loadings
+gFactors2 = ggplot(data = loadings_fa2, aes(x = Variable, 
+                                            y = Loading,
+                                            fill = Factor)) +
+            geom_bar(stat = "identity") +
+            labs(title = "Factor Analysis Loadings",
+                 subtitle = "Just Numerical Variables",
+                 x = "Variable", 
+                 y = "Loadings") + theme_minimal() + 
+            theme(axis.text.x = element_text(angle = 45, 
+                                             hjust = 1)) +
+            facet_wrap(~Factor)
+gFactors2
+```
+
+From this second Factor Analysis procedure we see 2 factors, that show
+us 2 different tendencies of patients.
+
+-   Factor 1 -\> we see that the higher the *age* the lower the
+    *max_heart_rate*, which is a coherent relation. We also see positive
+    relationship with *oldpeak* and *rest_blood_pressure*, which is an
+    adequate result knowing that when you get older the usual thing is
+    to be more prone to those kind of problems. We conclude that this
+    factor explains the **usual heart's health risk of a patient**.
+
+-   Factor 2 -\> explains the usual relationship between *age* and
+    *max_heart_rate*, but very attenuated. In contrast to the importance
+    of *rest_blood_pressure*. This results makes us think that this
+    factor is focused more on **unusual health risk on healthy
+    patients**. However this factor is not as robust as the one before,
+    as its SS loadings are 0.578.
+
+### 4.3 All variables (FA)
+
+Applying what we have learned before, we will now create a model but for
+all the variables including the *stage*.
+
+```{r}
+heart_fa3 <- heart %>% select(-heart_disease, - ageGroups)
+
+for(i in which(sapply(heart_fa3, class) == "factor")) {
+  heart_fa3[,i] <- as.numeric(as.character(heart_fa3[,i]))
+}
+glimpse(heart_fa3)
+# Then we normalise the variables that were categorical and
+# had different values from [0, 1] strictly:
+# chest_pain; restcg; slope and stage
+heart_fa3$chest_pain = (heart_fa3$chest_pain - 
+                          min(heart_fa3$chest_pain)) / 
+                        (max(heart_fa3$chest_pain) 
+                         - min(heart_fa3$chest_pain))
+heart_fa3$restecg = (heart_fa3$restecg - 
+                          min(heart_fa3$restecg)) / 
+                        (max(heart_fa3$restecg) 
+                         - min(heart_fa3$restecg))
+heart_fa3$slope = (heart_fa3$slope - 
+                          min(heart_fa3$slope)) / 
+                        (max(heart_fa3$slope) 
+                         - min(heart_fa3$slope))
+heart_fa3$stage = (heart_fa3$stage - 
+                          min(heart_fa3$stage)) / 
+                        (max(heart_fa3$stage) 
+                         - min(heart_fa3$stage))
+```
+
+Now we have our full numerical data set ready to go.
+
+```{r}
+# The next step is build the proper Factor model
+fa3_1 = factanal(heart_fa3, factors = 3, rotation = "none", 
+              scores = "Bartlett")
+fa3_1
+# We make the same comparison as before
+# First with scores (does not matter)
+# none       -> SS loadings      1.792   1.564   0.622
+# regression -> SS loadings      1.792   1.564   0.622
+# Bartlett   -> SS loadings      1.792   1.564   0.622
+# Then with the rotation (between none and varimax)
+# none       -> SS loadings      1.792   1.564   0.622 -> 3.978
+# varimax    -> SS loadings      2.001   0.992   0.984 -> 3.977
+# promax     -> SS loadings      1.902   0.990   0.888 -> 3.78
+# Now number of factors
+nFactors::plotnScree(nFactors::nScree(x = eigen(cor(heart_fa3))$values),legend = F, main = "Optimal Amount of Factors (Elbow Method)", xlab = "Number of Factors")
+# 4 is the ideal number of factors
+fa3_2 = factanal(heart_fa3, factors = 4, rotation= "varimax", 
+              scores = "none")
+fa3_2
+# Results
+# varimax -> SS loadings      1.578   1.110   1.034   0.935
+# 4.657
+# none    -> SS loadings      2.376   0.890   0.771   0.620
+# 4.657
+# Varimax is basically minimising the variance between factors
+# Let's study with varimax because it will make our study easier
+# to see
+fa3_best = factanal(heart_fa3, factors = 4, rotation= "varimax",
+                    scores = "none")
+fa3_best
+```
+
+The next step is to visualise and get conclusions.
+
+```{r}
+# Same procedure as before
+# Auxiliary data frame to store all the the loadings per factor
+factors3 = data.frame(Variable = rownames(fa3_best$loadings),
+                      Factor1 = fa3_best$loadings[, 1],
+                      Factor2 = fa3_best$loadings[, 2],
+                      Factor3 = fa3_best$loadings[, 3],
+                      Factor4 = fa3_best$loadings[, 4])
+# Now having a column that indicates the factor to which the 
+# loading belongs to
+loadings_fa3 = tidyr::gather(factors3, Factor, 
+                             Loading, -Variable)
+# Final barplot with all the Factors and their loadings
+gFactors3 = ggplot(data = loadings_fa3, aes(x = Variable, 
+                                            y = Loading,
+                                            fill = Factor)) +
+            geom_bar(stat = "identity") +
+            labs(title = "Factor Analysis Loadings",
+                 subtitle = "All variables",
+                 x = "Variable", 
+                 y = "Loadings") + theme_minimal() + 
+            theme(axis.text.x = element_text(angle = 45, 
+                                             hjust = 1)) +
+            facet_wrap(~Factor, scales = "free")
+gFactors3
+```
+
+This Factor Analysis procedure confirmed our assumptions that the
+variable *stage* would have a lot of weight and make the model less
+flexible. We see a clear distinctions of the different stages between
+the factors, being the [factors with higher stage]{.underline}
+importance the **unhealthier tendencies** and the ones with the [lower
+stage]{.underline} are the **healthier tendencies**.
+
+### 4.4 Conclusion FA
+
+In short, thanks to the different Factor Analysis we studied before, we
+conclude that the stronger model was using all the features, except the
+*stage*, making numerical the ones needed.
+
+The FA showed us that there are 4 main tendencies **healthy (or usual)
+young patients**, **older patients in moderate heart risks**, **patients
+with high heart risks** and **overall healthy patients**. These factors
+can explain in the most precise way the different tendencies of the
+patients without loosing flexibility while being accurate enough.
+
+## 5. Clustering
+
+First we make an initial guess of 3 clusters (healthy, disease and
+confusing/low disease stage)
+
+```{r}
+set.seed(321)
+
+heart_clust = scale(heart_pca) # Since it has all the numeric variables
+k = 3
+fit_clust = kmeans(heart_clust, centers=k, nstart=1000)
+groups = fit_clust$cluster
+
+par(mfrow=c(1,1))
+barplot(table(groups), col="blue")
+```
+
+We obtained 3 groups where the largest number of observations show up in
+the second cluster.
+
+**Interpretation of the centers**
+
+```{r}
+centers=fit_clust$centers
+
+barplot(centers[1,], las=2, col="darkblue") # High negative max_heart_rate, negative all except age
+barplot(centers[2,], las=2, col="darkblue") # High all positive except max_heart_rate (negative)
+barplot(centers[3,], las=2, col="darkblue") # High positive max_heart_rate, high negative age
+```
+
+We understand that the clusters obtained are:
+
+-   the first one for normal people (values near 0 except for heart
+    rate).
+
+-   the second for the people with the disease (high levels of age,
+    chol, oldpeak).
+
+-   the third one for healthy people (young and with a good positive
+    heart rate).
+
+**Clustplot**
+
+```{r}
+# clusplot
+fviz_cluster(fit_clust, data = heart_clust, geom = c("point"), ellipse.type = 'norm') +
+  theme_minimal()+
+  geom_text(label=heart$stage,hjust=0, vjust=0,size=3,check_overlap = F)+
+  scale_fill_brewer(palette="Paired")
+```
+
+We can see that the majority of points that belong to the cluster 3 are
+from the stage 0 (healthy), however, the other 2 groups are pretty
+messed up. We can try to reduce to 2 clusters:
+
+```{r}
+k = 2
+fit_clust = kmeans(heart_clust, centers=k, nstart=1000)
+groups = fit_clust$cluster
+barplot(table(groups), col="blue")
+barplot(centers[1,], las=2, col="darkblue") # Low positive age, remaining low negative except a very negative max_heart_rate
+barplot(centers[2,], las=2, col="darkblue") # All features are high except heart_rate
+```
+
+A priori by looking to the centers information, we can assume that the
+first cluster is related to young people, maybe more healthy aspects for
+the other variables, and the second cluster for the older people, with
+higher risk of having a heart disease.
+
+```{r}
+# clusplot
+fviz_cluster(fit_clust, data = heart_clust, geom = c("point"), ellipse.type = 'norm') +
+  theme_minimal()+
+  geom_text(label=heart$stage,hjust=0, vjust=0,size=3,check_overlap = T)+
+  scale_fill_brewer(palette="Paired")
+
+```
+
+We obtained a cluster with many healthy people whereas the other one has
+all kind of people. We assume that this happens because the center of
+the "healthy" cluster has a low age, which is strongly correlated with
+not having the heart disease.
+
+```{r}
+ggplot()+
+  aes(x = heart_not_norm$stage, y = heart_not_norm$age)+
+  geom_violin(fill = "lightyellow")+
+  geom_jitter(aes(color = as.factor(fit_clust$cluster)))+
+  theme_minimal() +
+  ggtitle("Heart Disease or not by age in each cluster") +
+  ylab("Age") +
+  xlab("Stage of the disease") +
+  labs(color = "Cluster number")
+
+```
+
+As we go up in the stage of the disease, we can see that less
+observations belong to the first cluster. We can also observe that the
+second cluster is mainly composed by older people (the ones who tend to
+have the disease).
+
+**Silhouette Plot**
+
+```{r}
+d <- dist(heart_clust, method="euclidean")  
+sil = silhouette(groups, d)
+plot(sil, col=1:5, main="", border=NA)
+summary(sil)
+
+# the same with factoextra
+fviz_silhouette(eclust(heart_clust, "kmeans", stand=TRUE, k=2))
+```
+
+We can see that the clusters silhouette width with two clusters can be
+considered well-clustered. This is because there are very few
+observations near 0 and even less with a negative value (which means
+that they might be in the wrong cluster). Therefore, we assume that 2
+clusters is the ideal amount. However, we can prove it
+
+```{r}
+fviz_nbclust(heart_clust, kmeans, method = 'silhouette', k.max = 15, nstart = 500)
+
+fviz_nbclust(heart_clust, kmeans, method = 'wss', k.max = 15, nstart = 500) +
+  geom_vline(xintercept = 6, linetype = 2) #elbow location
+
+fviz_nbclust(heart_clust, kmeans, method = 'gap_stat', k.max = 10, nstart = 100, nboot = 500)
+```
+
+We can see that for the silhouette and the gap_stat methods, the best
+number of clusters is 2. However, the wss method proposes a higher
+number of clusters, around 6, so lets study this option.
+
+```{r}
+k = 6
+fit_clust = kmeans(heart_clust, centers=k, nstart=1000)
+groups = fit_clust$cluster
+barplot(table(groups), col="blue")
+
+centers=fit_clust$centers
+
+barplot(centers[1,], las=2, col="darkblue") 
+barplot(centers[2,], las=2, col="darkblue") 
+barplot(centers[3,], las=2, col="darkblue") 
+barplot(centers[4,], las=2, col="darkblue") 
+barplot(centers[5,], las=2, col="darkblue") 
+barplot(centers[6,], las=2, col="darkblue") 
+
+# clusplot
+fviz_cluster(fit_clust, data = heart_clust, geom = c("point"), ellipse.type = 'norm') +
+  theme_minimal()+
+  geom_text(label=heart$stage,hjust=0, vjust=0,size=3,check_overlap = T)+
+  scale_fill_brewer(palette="Paired")
+
+# the same with factoextra
+fviz_silhouette(eclust(heart_clust, "kmeans", stand=TRUE, k=6))
+
+```
+
+We can see that several clusters have negative siluette width and,
+therefore, it may not be the best number of clusters.
+
+### 5.1 PAM
+
+Partitioning (clustering) of the data into k clusters \*around medoids\*
+
+More robust version than k-means, the centers are now patients
+
+```{r}
+
+fit.pam <- eclust(heart_clust, "pam", stand=TRUE, k=2, graph=F)
+
+fviz_cluster(fit.pam, data = heart_clust, geom = c("point"), pointsize=0.5) +
+  theme_minimal() +
+  geom_text(label= heart$stage, hjust=0, vjust=0, size=4, check_overlap = T) +
+  scale_fill_brewer(palette="Paired")
+```
+
+We can see that the cluster plot is very simmilar to the previous one,
+where cluster 2 has mostly stage 0 observations (healthy people).
+
+Number of groups by pam:
+
+```{r}
+fviz_nbclust(heart_clust, pam, method = 'silhouette', k.max = 10)
+
+fviz_nbclust(heart_clust, pam, method = 'gap_stat', k.max = 10, nboot = 500)
+```
+
+By both methods we have that 2 clusters would be the best.
+
+```{r}
+# The closer to 1 the more agreement
+
+fit_clust = kmeans(heart_clust, centers=2, nstart=1000)
+fit.pam <- eclust(heart_clust, "pam", stand=TRUE, k=2, graph=F)
+
+adjustedRandIndex(fit_clust$cluster, fit.pam$clustering)
+```
+
+There is some kind of agreement between them, however it may seem low
+comparing it to what we expected.
+
+### 5.2 Kernel k-means
+
+```{r}
+library(kernlab)
+
+fit.ker <- kkmeans(as.matrix(heart_clust), centers=2, kernel="rbfdot") # Radial Basis kernel (Gaussian)
+# By default, Gaussian kernel is used
+# By default, sigma parameter is estimated
+
+centers(fit.ker)
+size(fit.ker)
+withinss(fit.ker)
+
+object.ker = list(data = heart_clust, cluster = fit.ker@.Data)
+fviz_cluster(object.ker, geom = c("point"), ellipse=F,pointsize=1)+
+  theme_minimal()+
+  geom_text(label= heart$stage,hjust=0, vjust=0,size=3,check_overlap = T)+
+  scale_fill_brewer(palette="Paired")
+
+adjustedRandIndex(fit_clust$cluster, fit.ker)
+adjustedRandIndex(fit.pam$cluster, fit.ker)
+```
+
+We obtained a value of 0.74 for both the relationship with the basic
+clustering and with PAM. Therefore, we can say that the results obtained
+are very similar to eachother.
+
+### 5.3 Hierarchical clustering
+
+```{r}
+# We decide the distance and linkage
+d = dist(scale(heart_clust), method = "euclidean")
+hc <- hclust(d, method = "ward.D2") 
+
+hc$labels <- heart$heart_disease
+
+fviz_dend(x = hc, 
+          k=2,
+          palette = "jco", 
+          rect = TRUE, rect_fill = TRUE, cex=0.5,
+          rect_border = "jco"          
+)
+```
+
+We cannot obtain much information from this plot (We cannot read the
+labels).
+
+```{r}
+
+library(igraph)
+fviz_dend(x = hc,
+          k = 2,
+          color_labels_by_k = TRUE,
+          cex = 0.8,
+          type = "phylogenic",
+          repel = TRUE)+  labs(title="Socio-economic-health tree clustering of the world") + theme(axis.text.x=element_blank(),axis.text.y=element_blank())
+```
+
+Not a very useful plot.
+
+### 5.4 EM clustering
+
+The last clustering technique will be the Expectation-Maximization
+clustering, which is like k-means but it computes the probabilities that
+an observation has of belonging to a certain cluster based on
+probability distributions.
+
+```{r}
+# We will follow the same strategy using the numerical variables
+heart_clust_EM = Mclust(scale(heart_clust))
+summary(heart_clust_EM)
+# The best in this case is using 8 clusters
+head(heart_clust_EM$z)
+head(heart_clust_EM$classification)
+fviz_mclust(object = heart_clust_EM, what = "BIC", 
+            pallet = "jco")
+```
+
+Now we get 8 clusters, however, it seems that due to the quantity
+between some close clusters it will tend in the end to show between 4
+and 2 real clusters as we have studied before.
+
+Now, talking more in deep about the values of BIC and ICL we got good
+results as the lower those values the better.
+
+We will plot our results and see if our assumptions are right.
+
+```{r}
+fviz_mclust(object = heart_clust_EM, what = "classification", 
+            geom = "point", pallet = "jco")
+```
+
+Our assumptions was right as we see there is some sort of overlapping
+between observations along the center of the plot, the right, top left
+and bottom left.
+
+Therefore if we compare the agreement to the previous clusters, we will
+not get a number closer to 1 due to the huge difference of number of
+clusters. (We will not plot a heatmap as we do not have a clear way to
+analyse results due to the labels).
+
+```{r}
+# Computes the adjusted Rand index comparing two classification
+# The closer to 1 the more agreement
+adjustedRandIndex(heart_clust_EM$classification, 
+                  fit.pam$clustering)
+# heatmap(scale(heart_clust), scale = "none",
+#         distfun = function(x){dist(x, method = "euclidean")},
+#        hclustfun = function(x){hclust(x, method = 
+#                                "ward.D2")},
+#         cexRow = 0.7)  # does not give us clear information
+```
+
+Nevertheless, due to the overlapping we could say that there are between
+4 and 2 tendencies of patients relating to their heart's health, the
+usual patients are affected by their age, whereas the healthiest are
+less affected.

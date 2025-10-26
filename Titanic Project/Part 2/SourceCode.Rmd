@@ -1,0 +1,806 @@
+---
+title: "Tree-KfoldCross-Validation"
+author: "Alejandro"
+date: "2022-11-26"
+output: html_document
+---
+
+# Titanic.train: Second Assignment
+
+We recommend reading it in the ***visual*** mode.
+
+First all the features that will be the base of the project:
+
+```{r}
+#clean the workspace
+rm(list=ls())
+
+#set the working directory
+setwd("C:/Users/juanj/Downloads/Universidad/1er Curso/1er Cuatri/Introduction to Data Science/Assignament2")
+#check the file is inside
+list.files()
+#read the data
+load("titanic_train.Rdata")
+#We change the name of the data frame for a efficient usage:
+data = titanic.train
+titanic.train = NULL
+rm(titanic.train)
+
+library(rpart)
+library(ggplot2)
+library(randomForest)
+library(reshape)
+library("rpart.plot")
+```
+
+## Data preprocessing:
+
+Decomposition of the code that will be applied in the final function:
+
+-   We change the levels of PClass to make it easier to visualize
+
+    ```{r}
+    data$Pclass = factor(data$Pclass, labels = c("1st Class", "2nd Class", "3rd Class"))
+    ```
+
+-   We fix the Embarked variable, since it has empty levels
+
+    ```{r}
+    data$Embarked = factor(data$Embarked,levels = c("C","Q","S"))
+    ```
+
+-   Transform the dependent, response or predictor variable into a Boolean factor where True is that the person survived and FALSE the opposite.
+
+    ```{r}
+    data$Survived = factor(data$Survived,levels = c("0","1"),labels=c(FALSE, TRUE))
+    ```
+
+-   We create a new variable called Room which divide the cabin data in two, the people with cabin and the people without
+
+    ```{r}
+    aux = which(data$Cabin != "")
+    data$Room = rep("No",length(data$Cabin))
+    data$Room[aux] = "Yes" 
+    data$Room = factor(data$Room)
+    ```
+
+-   We also create a new variable called travels_alone which divides the people in two, the people with cabin and the people without
+
+    ```{r}
+    aux = data$Parch == 0 & data$SibSp == 0
+    sum(aux)
+    travels_alone = rep("Not Alone",length(aux))
+    travels_alone[aux] = "Alone"
+    data$travels_alone = travels_alone
+    data$travels_alone = factor(data$travels_alone)
+    ```
+
+-   Note that the sample Ticket number does not provide information about the dependent variable, so we remove it from the data frame
+
+    ```{r}
+    data[,"Ticket"]=NULL
+    data[,"Cabin"] = NULL
+    ```
+
+-   The first approach to the data set will be the creation of a decision tree to compute the variable importance:
+
+    ```{r}
+    # We sample randomly numbers associated with the positions of the training set, which
+    # will contain a percentage of the data (80%)
+    split = sample(1:length(data$Survived), floor(0.8*length(data$Survived)),replace = F)
+
+    train_set = data[split,]
+    test_set = data[-split,]
+
+    # Run the classification algorithm with default hyperparameters values
+
+    mytree=rpart(formula=Survived~., data=train_set, method="class")
+
+
+    # Plot the classification tree obtain from the algorithm
+    prp(mytree,
+        type=2,
+        extra=106,
+        nn=TRUE,
+        shadow.col="blue",
+        digits=2,
+        roundint=FALSE)
+
+    # Plot the importance of each variable of the data set for predicting the survival
+    ggplot(data = data.frame(var_import = mytree$variable.importance,
+                             var_names = names(mytree$variable.importance),
+                             x_val = 1:length(mytree$variable.importance))) +
+      aes(x = x_val, y = var_import) +
+      geom_line(size = 1) +
+      geom_point(size = 2) +
+      scale_x_continuous(labels = names(mytree$variable.importance),
+                         breaks = 1:length(mytree$variable.importance))+
+      xlab("Variables") +
+      ylab("Importance") +
+      labs(title = "VARIABLE IMPORTANCE FOR SURVIVAL")
+    ```
+
+## 1. K-Fold validation decision tree:
+
+1.  Set up a seed:
+
+    ```{r}
+    set.seed(18)
+    ```
+
+2.  Hyperparameters selection:
+
+    ```{r}
+    d_minsplit=seq(from=2,to=40,by=2)
+    d_maxdepth=seq(from=1,to=5,by=1)
+    d_cp=10^(-seq(from=2,to=4,by=1))
+    parametros=expand.grid(minsplit=d_minsplit,maxdepth=d_maxdepth,cp=d_cp)
+    ```
+
+3.  Create a data frame for the results and the folds:
+
+<!-- -->
+
+    ```{r}
+    nfolds = 10
+    modqualres=data.frame(accuracy=rep(0,nfolds),
+                          sensitivity=rep(0,nfolds),
+                          specificity=rep(0,nfolds))
+
+    listmodqualres=list()
+
+    # We initially create the folds
+    folds=list()
+    inivec=1:length(data$Survived)
+    for(i in 1:(nfolds-1)){
+      split = sample(inivec,floor(length(data$Survived)/nfolds),replace = F)
+      folds[[i]]=split
+      inivec = inivec[!(inivec%in%split)]
+    }
+    folds[[nfolds]]=inivec
+    ```
+
+4.  Iterative process:
+
+    ```{r}
+
+    for(j in 1:dim(parametros)[1]){
+      print(paste("Model ",as.character(j)," of ",as.character(dim(parametros)[1])))
+      # We star the iterative process through the folds
+      for(i in 1:nfolds){
+        # The training and test set is obtained as follows
+        training_set = data[-folds[[i]],]
+        test_set = data[folds[[i]],]
+        
+        # We train the model
+        mytree=rpart(formula=Survived ~., data=training_set, method="class",
+                     control = rpart.control(minsplit=parametros$minsplit[j],
+                                             maxdepth=parametros$maxdepth[j],
+                                             cp=parametros$cp[j]))
+        
+        # Use the function predict to apply the classification algorithm
+        # with test set
+        pred = predict(mytree,test_set,type="class")
+        
+        # Compute the confusion matrix
+        conf_matrix = table(test_set$Survived,pred,dnn=c("Actual value","Classifier prediction"))
+        conf_matrix_prop = prop.table(conf_matrix)
+        
+        # Compute error estimates
+        modqualres$accuracy[i] = sum(diag(conf_matrix))/sum(conf_matrix)
+        modqualres$sensitivity[i] = conf_matrix[1,1]/sum(conf_matrix[,1])
+        modqualres$specificity[i] = conf_matrix[2,2]/sum(conf_matrix[,2])
+        
+      }  
+      listmodqualres[[j]]=modqualres
+      parametros$accuracy[j]=mean(modqualres$accuracy)
+      parametros$sensitivity[j]=mean(modqualres$sensitivity)
+      parametros$specificity[j]=mean(modqualres$specificity)
+    }
+    ```
+
+5.  Plot the results:
+
+    ```{r}
+    plotmodelqualityresults=data.frame(values=c(parametros$accuracy,
+                                                parametros$sensitivity,
+                                                parametros$specificity),
+                                       parameter=as.factor(c(rep("accuracy",length(parametros$accuracy)),
+                                                             rep("sensitivity",length(parametros$accuracy)),
+                                                             rep("specificity",length(parametros$accuracy)))))
+
+
+    #Using ggplot to create the graphs
+
+    ggplot(data=plotmodelqualityresults)+aes(x=values,fill=parameter)+
+      geom_histogram(bins=10, colour="black",aes(y=..density..))+
+      geom_density( colour="black",alpha=0,size=1)+facet_grid(.~parameter)+
+      labs(title = "RESULTS OF DECISION TREE K-FOLD CROSS VALIDATION")
+
+
+    ggplot(data=plotmodelqualityresults)+aes(x=parameter,fill=parameter,y=values)+
+      geom_boxplot()
+
+    ```
+
+6.  Looking for the best results:
+
+    ```{r}
+
+    # The best hyperparameter combination for maximum mean accuracy corresponds to
+    parametros[which.max(parametros$accuracy),]
+    # The best hyperparameter combination for maximum mean sensitivity corresponds to
+    parametros[which.max(parametros$sensitivity),]
+    # The best hyperparameter combination for maximum mean specificity corresponds to
+    parametros[which.max(parametros$specificity),]
+    # The best hyperparameter combination for maximum mean for the three parameters corresponds to
+    parametros[which.max(apply(parametros[,c(4:6)],MARGIN = 1,FUN=mean)),]
+    ```
+
+7.  Plot the best results:
+
+    ```{r}
+    #Create a dataframe to plot the results
+    bestframe=listmodqualres[[which.max(apply(parametros[,c(4:6)],MARGIN = 1,FUN=mean))]]
+    plotbestresults=data.frame(values=c(bestframe$accuracy,
+                                        bestframe$sensitivity,
+                                        bestframe$specificity),
+                               parameter=as.factor(c(rep("accuracy",length(bestframe$accuracy)),
+                                                     rep("sensitivity",length(bestframe$accuracy)),
+                                                     rep("specificity",length(bestframe$accuracy)))))
+
+    #Use ggplot to create the plot
+    ggplot(data=plotbestresults)+aes(x=parameter,fill=parameter,y=values)+
+      geom_boxplot()
+    ```
+
+8.  Print the best tree
+
+```{r}
+bestMean = parametros[which.max(apply(parametros[,c(4:6)],MARGIN = 1,FUN=mean)),]
+
+bestMinSplit = parametros[which.max(apply(parametros[,c(4:6)],MARGIN = 1,FUN=mean)),1]
+bestMaxDepth = parametros[which.max(apply(parametros[,c(4:6)],MARGIN = 1,FUN=mean)),2]
+bestCp = parametros[which.max(apply(parametros[,c(4:6)],MARGIN = 1,FUN=mean)),3]
+mytree =  mytree=rpart(formula=Survived ~., data=training_set, method="class",
+                       control = rpart.control(minsplit=bestMinSplit,maxdepth=bestMaxDepth,cp=bestCp))
+library(rpart.plot)
+rpart.plot(mytree)
+```
+
+## **2. Repeated Validation Tree**
+
+1.  Upload the data frame and change all the variables
+
+    ```{r}
+    rm(list=ls())
+    load("titanic_train.Rdata")
+    data = titanic.train
+    titanic.train = NULL
+    data$Pclass = factor(data$Pclass, labels = c("1st Class", "2nd Class", "3rd Class"))
+    data$Embarked = factor(data$Embarked,levels = c("C","Q","S"))
+    data$Survived = factor(data$Survived,levels = c("0","1"),labels=c(FALSE, TRUE))
+    aux = which(data$Cabin != "")
+    data$Room = rep("No",length(data$Cabin))
+    data$Room[aux] = "Yes" 
+    data$Room = factor(data$Room)
+    aux = data$Parch == 0 & data$SibSp == 0
+    sum(aux)
+    travels_alone = rep("Not Alone",length(aux))
+    travels_alone[aux] = "Alone"
+    data$travels_alone = travels_alone
+    data$travels_alone = factor(data$travels_alone)
+    data[,"Ticket"]=NULL
+    data[,"Cabin"] = NULL
+    ```
+
+2.  Set up the seed and the hyper-parameters data frame
+
+```{r message=TRUE, warning=TRUE, paged.print=TRUE}
+
+set.seed(18)
+
+nrep = 100
+
+d_minsplit = seq(from=2,to=40,by=2)
+d_maxdepth = seq(from=1,to=5,by=1)
+d_cp = 10^(-seq(from=2,to=4,by=1))
+params=expand.grid(minsplit=d_minsplit, maxdepth=d_maxdepth, cp=d_cp)
+
+modelqualityresults = data.frame(accuracy=rep(0,nrep),
+                                 sensitivity=rep(0,nrep),
+                                 specificity=rep(0,nrep))
+
+listmodqualres=list()
+```
+
+3.  Run the loops:
+
+    ```{r}
+    # We start a for loop to obtain the results for each hyperparameter combination
+    for (j in 1:dim(params)[1]){
+      
+      print(paste("Model ",as.character(j)," of ",as.character(dim(params)[1])))
+      
+      for(i in 1:nrep){
+        
+        # We sample randomly numbers associated with the positions of the training set, which
+        # will contain a percentage of the data (usually 80%)
+        split = sample(1:length(data$Survived), floor(0.8*length(data$Survived)),replace = F)
+        
+        # The trainning_set is composed by the rows of the split while the test set
+        # is composed by the rows of data that aren't in split
+        training_set = data[split,]
+        test_set = data[-split,]
+        
+        # We train the model with the different values of the hyperparameters
+        mytree = rpart(formula = Survived ~., data=training_set, method="class",
+                       control = rpart.control(minsplit=params$minsplit[j],
+                                               maxdepth=params$maxdepth[j],
+                                               cp=params$cp[j]))
+        
+        # Use the function predict to apply the classification algorithm
+        # with test set
+        pred = predict(mytree, test_set, type="class")
+        
+        # Compute the confusion matrix
+        conf_matrix = table(test_set$Survived,pred,dnn=c("Actual value","Classifier prediction"))
+        conf_matrix_prop = prop.table(conf_matrix)
+        
+        # Compute error estimates
+        modelqualityresults$accuracy[i] = sum(diag(conf_matrix))/sum(conf_matrix)
+        modelqualityresults$sensitivity[i] = conf_matrix[1,1]/sum(conf_matrix[,1])
+        modelqualityresults$specificity[i] = conf_matrix[2,2]/sum(conf_matrix[,2])
+        
+      }
+      
+      listmodqualres[[j]]=modelqualityresults
+      params$accuracy[j]=mean(modelqualityresults$accuracy)
+      params$sensitivity[j]=mean(modelqualityresults$sensitivity)
+      params$specificity[j]=mean(modelqualityresults$specificity)
+      
+    }
+    ```
+
+4.  Create the data-frame and plot the results:
+
+    ```{r}
+
+
+    plotmodelqualityresults=data.frame(values=c(params$accuracy,
+                                                params$sensitivity,
+                                                params$specificity),
+                                       parameter=as.factor(c(rep("accuracy",length(params$accuracy)),
+                                                             rep("sensitivity",length(params$accuracy)),
+                                                             rep("specificity",length(params$accuracy)))))
+
+
+    plotmodelqualityresults2 = melt(params[,c(4:6)],variable_name="parameter")
+    names(plotmodelqualityresults2)[2]="values"
+
+
+    ggplot(data=plotmodelqualityresults)+aes(x=values,fill=parameter)+
+      geom_histogram(bins=10, colour="black",aes(y=..density..))+
+      geom_density( colour="black",alpha=0,size=1)+facet_grid(.~parameter) +
+      labs(title = "RESULTS OF DECISION TREE REPEATED VALIDATION")
+
+    ggplot(data=plotmodelqualityresults)+aes(x=parameter,fill=parameter,y=values)+
+      geom_boxplot()
+
+    ```
+
+5.  Looking for the best results:
+
+    ```{r}
+
+    # The best hyperparameter combination for maximum mean accuracy corresponds to
+    params[which.max(params$accuracy),]
+    # The best hyperparameter combination for maximum mean sensitivity corresponds to
+    params[which.max(params$sensitivity),]
+    # The best hyperparameter combination for maximum mean specificity corresponds to
+    params[which.max(params$specificity),]
+    # The best hyperparameter combination for maximum mean for the three parameters corresponds to
+    params[which.max(apply(params[,c(4:6)],MARGIN = 1,FUN=mean)),]
+    ```
+
+6.  Plot the best results:
+
+    ```{r}
+    bestframe=listmodqualres[[which.max(apply(params[,c(4:6)],MARGIN = 1,FUN=mean))]]
+    plotbestresults=data.frame(values=c(bestframe$accuracy,
+                                        bestframe$sensitivity,
+                                        bestframe$specificity),
+                               parameter=as.factor(c(rep("accuracy",length(bestframe$accuracy)),
+                                                     rep("sensitivity",length(bestframe$accuracy)),
+                                                     rep("specificity",length(bestframe$accuracy)))))
+
+    ggplot(data=plotbestresults)+aes(x=parameter,fill=parameter,y=values)+
+      geom_boxplot()
+    ```
+
+7.  Looking for the best model and plotting it:
+
+    ```{r}
+
+    bestmodel = rpart(formula = Survived ~., data=training_set, method="class",
+                   control = rpart.control(minsplit=params[which.max(apply(params[,c(4:6)],MARGIN = 1,FUN=mean)),]$minsplit,
+                                           maxdepth=params[which.max(apply(params[,c(4:6)],MARGIN = 1,FUN=mean)),]$maxdepth,
+                                           cp=params[which.max(apply(params[,c(4:6)],MARGIN = 1,FUN=mean)),]$cp))
+
+    rpart.plot(bestmodel)
+    ```
+
+## 3. Random Forest with k-fold validation:
+
+1.  Upload the data frame and change all the variables
+
+    ```{r}
+    rm(list=ls())
+    load("titanic_train.Rdata")
+    data = titanic.train
+    titanic.train = NULL
+    rm(titanic.train)
+    data$Pclass = factor(data$Pclass, labels = c("1st Class", "2nd Class", "3rd Class"))
+    data$Embarked = factor(data$Embarked,levels = c("C","Q","S"))
+    data$Survived = factor(data$Survived,levels = c("0","1"),labels=c(FALSE, TRUE))
+    aux = which(data$Cabin != "")
+    data$Room = rep("No",length(data$Cabin))
+    data$Room[aux] = "Yes" 
+    data$Room = factor(data$Room)
+    aux = data$Parch == 0 & data$SibSp == 0
+    sum(aux)
+    travels_alone = rep("Not Alone",length(aux))
+    travels_alone[aux] = "Alone"
+    data$travels_alone = travels_alone
+    data$travels_alone = factor(data$travels_alone)
+    data[,"Ticket"]=NULL
+    data[,"Cabin"] = NULL
+    ```
+
+2.  Set up the seed and the hyper-parameters data frame
+
+    ```{r}
+
+    set.seed(18)
+
+    nfolds = 10
+
+    # Hyper parameter selection
+
+    d_mtry=seq(from=2,to=8,by=1)
+    d_ntree=seq(from=200,to=600,by=25)
+    parametros=expand.grid(mtry=d_mtry,ntree=d_ntree)
+
+
+    modqualres=data.frame(accuracy=rep(0,nfolds),
+                          sensitivity=rep(0,nfolds),
+                          specificity=rep(0,nfolds))
+
+    listmodqualres=list()
+
+    ```
+
+<!-- -->
+
+4.  Create the folds:
+
+    ```{r}
+    folds=list()
+    inivec=1:length(data$Survived)
+    for(i in 1:(nfolds-1)){
+      split = sample(inivec,floor(length(data$Survived)/nfolds),replace = F)
+      folds[[i]]=split
+      inivec = inivec[!(inivec%in%split)]
+    }
+    folds[[nfolds]]=inivec
+    ```
+
+5.  Iterate through the hyperparameters and each fold:
+
+    ```{r}
+    for(j in 1:dim(parametros)[1]){
+      print(paste("Model ",as.character(j)," of ",as.character(dim(parametros)[1])))
+      # We start the iterative process through the folds
+      for(i in 1:nfolds){
+        # The training and test set is obtained as follows
+        training_set = data[-folds[[i]],]
+        test_set = data[folds[[i]],]
+        
+        # We train the model
+        mytree= randomForest(formula=Survived ~., data=training_set, method="class",
+                             ntree = parametros$ntree[j],
+                             mtry = parametros$mtry[j])
+        pred = predict(mytree, test_set, type = "class")
+
+        # Compute the confusion matrix
+        conf_matrix = table(test_set$Survived,pred,dnn=c("Actual value","Classifier prediction"))
+        conf_matrix_prop = prop.table(conf_matrix)
+        
+        # Compute error estimates
+        modqualres$accuracy[i] = sum(diag(conf_matrix))/sum(conf_matrix)
+        modqualres$sensitivity[i] = conf_matrix[1,1]/sum(conf_matrix[,1])
+        modqualres$specificity[i] = conf_matrix[2,2]/sum(conf_matrix[,2])
+        
+      }  
+      
+      listmodqualres[[j]]=modqualres
+      parametros$accuracy[j]=mean(modqualres$accuracy)
+      parametros$sensitivity[j]=mean(modqualres$sensitivity)
+      parametros$specificity[j]=mean(modqualres$specificity)
+    }
+
+    ```
+
+6.  Plot the results:
+
+    ```{r}
+    plotmodelqualityresults=data.frame(values=c(parametros$accuracy,
+                                                parametros$sensitivity,
+                                                parametros$specificity),
+                                       parameter=as.factor(c(rep("accuracy",length(parametros$accuracy)),
+                                                             rep("sensitivity",length(parametros$accuracy)),
+                                                             rep("specificity",length(parametros$accuracy)))))
+
+
+    plotmodelqualityresults2=melt(parametros[,c(3:4)],variable_name="parameter")
+    names(plotmodelqualityresults2)[2]="values"
+
+
+    ggplot(data=plotmodelqualityresults)+aes(x=values,fill=parameter)+
+      geom_histogram(bins=10, colour="black",aes(y=..density..))+
+      geom_density( colour="black",alpha=0,size=1)+facet_grid(.~parameter)+
+      labs(title = "RESULTS OF RANDOM FOREST K-FOLD CROSS VALIDATION")
+
+
+    ggplot(data=plotmodelqualityresults)+aes(x=parameter,fill=parameter,y=values)+
+      geom_boxplot()
+    ```
+
+7.  Look for the best results:
+
+    ```{r}
+    # The best hyperparameter combination for maximum mean accuracy corresponds to
+    parametros[which.max(parametros$accuracy),]
+    # The best hyperparameter combination for maximum mean sensitivity corresponds to
+    parametros[which.max(parametros$sensitivity),]
+    # The best hyperparameter combination for maximum mean specificity corresponds to
+    parametros[which.max(parametros$specificity),]
+    # The best hyperparameter combination for maximum mean for the three parameters corresponds to
+    parametros[which.max(apply(parametros[,c(3:5)],MARGIN = 1,FUN=mean)),]
+
+    ```
+
+8.  Plot them:
+
+    ```{r}
+    bestframe=listmodqualres[[which.max(apply(parametros[,c(3:5)],MARGIN = 1,FUN=mean))]]
+    plotbestresults=data.frame(values=c(bestframe$accuracy,
+                                        bestframe$sensitivity,
+                                        bestframe$specificity),
+                               parameter=as.factor(c(rep("accuracy",length(bestframe$accuracy)),
+                                                     rep("sensitivity",length(bestframe$accuracy)),
+                                                     rep("specificity",length(bestframe$accuracy)))))
+
+    ggplot(data=plotbestresults)+aes(x=parameter,fill=parameter,y=values)+
+      geom_boxplot()
+
+    bestmodel = randomForest(x = data[, -1], y = data$Survived,
+                             ntree = parametros$ntree[which.max(parametros$accuracy)],
+                             mtry = parametros$mtry[which.max(parametros$accuracy)])
+    ```
+
+## **4. Random Forest with repeated validation:**
+
+1.  Upload the data frame and do all the necessary changes
+
+    ```{r}
+    rm(list=ls())
+    load("titanic_train.Rdata")
+    data = titanic.train
+    titanic.train = NULL
+    rm(titanic.train)
+    data$Pclass = factor(data$Pclass, labels = c("1st Class", "2nd Class", "3rd Class"))
+    data$Embarked = factor(data$Embarked,levels = c("C","Q","S"))
+    data$Survived = factor(data$Survived,levels = c("0","1"),labels=c(FALSE, TRUE))
+    aux = which(data$Cabin != "")
+    data$Room = rep("No",length(data$Cabin))
+    data$Room[aux] = "Yes" 
+    data$Room = factor(data$Room)
+    aux = data$Parch == 0 & data$SibSp == 0
+    sum(aux)
+    travels_alone = rep("Not Alone",length(aux))
+    travels_alone[aux] = "Alone"
+    data$travels_alone = travels_alone
+    data$travels_alone = factor(data$travels_alone)
+    data[,"Ticket"]=NULL
+    data[,"Cabin"] = NULL
+    ```
+
+2.  Set up all the parameters:
+
+    ```{r}
+
+    set.seed(18)
+
+    nrep = 100
+
+    d_mtry=seq(from=2,to=6,by=1)
+    d_ntree=seq(from=100,to=600,by=25)
+    params=expand.grid(mtry=d_mtry,ntree=d_ntree)
+
+    modelqualityresults = data.frame(accuracy=rep(0,nrep),
+                                     sensitivity=rep(0,nrep),
+                                     specificity=rep(0,nrep))
+
+    listmodqualres=list()
+
+    ```
+
+3.  Iterate around them:
+
+    ```{r}
+    # We start a for loop to obtain the results for each hyperparameter combination
+    for (j in 1:dim(params)[1]){
+      
+      print(paste("Model ",as.character(j)," of ",as.character(dim(params)[1])))
+      
+      for(i in 1:nrep){
+        
+        # We sample randomly numbers associated with the positions of the training set, which
+        # will contain a percentage of the data (usually 80%)
+        split = sample(1:length(data$Survived), floor(0.8*length(data$Survived)),replace = F)
+        
+        # The trainning_set is composed by the rows of the split while the test set
+        # is composed by the rows of data that aren't in split
+        training_set = data[split,]
+        test_set = data[-split,]
+        
+        # We train the model with the different values of the hyperparameters
+        mytree= randomForest(formula=Survived ~., data=training_set, method="class",
+                             ntree = params$ntree[j],
+                             mtry = params$mtry[j])
+        
+        pred = predict(mytree, test_set, type = "class")
+        
+        # Compute the confusion matrix
+        conf_matrix = table(test_set$Survived,pred,dnn=c("Actual value","Classifier prediction"))
+        conf_matrix_prop = prop.table(conf_matrix)
+        
+        # Compute error estimates
+        modelqualityresults$accuracy[i] = sum(diag(conf_matrix))/sum(conf_matrix)
+        modelqualityresults$sensitivity[i] = conf_matrix[1,1]/sum(conf_matrix[,1])
+        modelqualityresults$specificity[i] = conf_matrix[2,2]/sum(conf_matrix[,2])
+        
+      }
+      
+      listmodqualres[[j]]=modelqualityresults
+      params$accuracy[j]=mean(modelqualityresults$accuracy)
+      params$sensitivity[j]=mean(modelqualityresults$sensitivity)
+      params$specificity[j]=mean(modelqualityresults$specificity)
+      
+    }
+
+    ```
+
+4.  Plot the results:
+
+    ```{r}
+    plotmodelqualityresults=data.frame(values=c(params$accuracy,
+                                                params$sensitivity,
+                                                params$specificity),
+                                       parameter=as.factor(c(rep("accuracy",length(params$accuracy)),
+                                                             rep("sensitivity",length(params$accuracy)),
+                                                             rep("specificity",length(params$accuracy)))))
+
+
+    plotmodelqualityresults2 = melt(params[,c(3:5)],variable_name="parameter")
+    names(plotmodelqualityresults2)[2]="values"
+
+
+    ggplot(data=plotmodelqualityresults)+aes(x=values,fill=parameter)+
+      geom_histogram(bins=10, colour="black",aes(y=..density..))+
+      geom_density( colour="black",alpha=0,size=1)+facet_grid(.~parameter)+
+      labs(title = "RESULTS OF RANDOM FOREST REPEATED VALIDATION")
+
+    ggplot(data=plotmodelqualityresults)+aes(x=parameter,fill=parameter,y=values)+
+      geom_boxplot()
+    ```
+
+5.  Look for the best parameters:
+
+    ```{r}
+    # The best hyperparameter combination for maximum mean accuracy corresponds to
+    params[which.max(params$accuracy),]
+    # The best hyperparameter combination for maximum mean sensitivity corresponds to
+    params[which.max(params$sensitivity),]
+    # The best hyperparameter combination for maximum mean specificity corresponds to
+    params[which.max(params$specificity),]
+    # The best hyperparameter combination for maximum mean for the three parameters corresponds to
+    params[which.max(apply(params[,c(3:5)],MARGIN = 1,FUN=mean)),]
+
+
+    ```
+
+6.  Finally we plot the best model:
+
+    ```{r}
+    # Finally we plot the best model
+    bestframe=listmodqualres[[which.max(apply(params[,c(3:5)],MARGIN = 1,FUN=mean))]]
+    plotbestresults=data.frame(values=c(bestframe$accuracy,
+                                        bestframe$sensitivity,
+                                        bestframe$specificity),
+                               parameter=as.factor(c(rep("accuracy",length(bestframe$accuracy)),
+                                                     rep("sensitivity",length(bestframe$accuracy)),
+                                                     rep("specificity",length(bestframe$accuracy)))))
+
+    ggplot(data=plotbestresults)+aes(x=parameter,fill=parameter,y=values)+
+      geom_boxplot()
+    ```
+
+## Function:
+
+Finally we compute a random forest with the hole data-set:
+
+```{r}
+bestclassifier = randomForest(formula=Survived ~., data=data, method="class",
+                              ntree = 225,
+                              mtry = 3)
+```
+
+Execute the function to check the test-set:
+
+```{r}
+my_model = function(test_set){
+  #We change the levels of PClass to make it easier to visualize
+  test_set$Pclass = factor(test_set$Pclass, labels = c("1st Class", "2nd Class", "3rd Class"))
+  
+  #We fix the Embarked variable, since it has empty levels
+  test_set$Embarked = factor(test_set$Embarked,levels = c("C","Q","S"))
+  
+  #Transform the dependent, response or predictor variable into a boolean factor,
+  # where True is that the person survived and FALSE the opposite.
+  test_set$Survived = factor(test_set$Survived,levels = c("0","1"),labels=c(FALSE, TRUE))
+  
+  # We create a new variable called Room which divide the cabin test_set in two,
+  # the people with cabin and the people without
+  aux = which(test_set$Cabin != "")
+  test_set$Room = rep("No",length(test_set$Cabin))
+  test_set$Room[aux] = "Yes" 
+  test_set$Room = factor(test_set$Room)
+  
+  # We also create a new variable called travels_alone which divides the people in two,
+  # the people with cabin and the people without
+  aux = test_set$Parch == 0 & test_set$SibSp == 0
+  sum(aux)
+  travels_alone = rep("Not Alone",length(aux))
+  travels_alone[aux] = "Alone"
+  test_set$travels_alone = travels_alone
+  test_set$travels_alone = factor(test_set$travels_alone)
+  
+  # Note that the sample Ticket number does not provide information about the dependent variable,
+  # so we remove it from the test_set frame
+  test_set[,"Ticket"]=NULL
+  test_set[,"Cabin"] = NULL
+  # Use the best classifier to forecast survival
+  pred = predict(bestclassifier,test_set,type="class")
+  # Compute the confusion matrix
+  conf_matrix = table(test_set$Survived,pred,dnn=c("Actual value","Classifier prediction"))
+  conf_matrix_prop = prop.table(conf_matrix)
+  # Compute error estimates
+  accuracy = sum(diag(conf_matrix))/sum(conf_matrix)
+  precision = conf_matrix[1,1]/sum(conf_matrix[,1])
+  specificity = conf_matrix[2,2]/sum(conf_matrix[,2])
+  return(list(prediction=pred,
+              conf_matrix=conf_matrix,
+              conf_matrix_prop=conf_matrix_prop,
+              accuracy=accuracy,
+              precision=precision,
+              specificity=specificity))
+}
+```
+
+and store our best prediction and the function in a .Rdata file:
+
+```{r}
+save(bestclassifier,my_model,file="my_model.Rdata")
+```
